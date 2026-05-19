@@ -19,3 +19,8 @@ result-*
 *~
 .\#*
 \#*\#
+
+# firefox-extension build artifacts
+panopticon-firefox.zip
+*.xpi
+web-ext-artifacts/

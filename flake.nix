@@ -18,6 +18,7 @@
           build-system = with pkgs.python3Packages; [ hatchling ];
           dependencies = with pkgs.python3Packages; [ i3ipc ];
           nativeCheckInputs = with pkgs.python3Packages; [ pytestCheckHook pytest-asyncio ];
+          meta.mainProgram = "panopticon-sway";
         };
       in {
         packages.default = panopticon;

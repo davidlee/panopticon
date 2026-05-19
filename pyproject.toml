@@ -17,6 +17,7 @@ dev = [
 [project.scripts]
 panopticon-sway = "panopticon.sway_watcher.__main__:main"
 panopticon-segmentize = "panopticon.segmentizer.__main__:main"
+panopticon-firefox-host = "panopticon.firefox_host.__main__:main"
 
 [build-system]
 requires = ["hatchling"]

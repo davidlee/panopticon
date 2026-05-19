@@ -29,9 +29,39 @@ Redaction policy lives downstream:
 3. **Consumer-level** aggregation (`agg=app_histogram`) omits titles
    entirely.
 
+## Firefox extension + native host
+
+Captures:
+
+- the URL `scheme://host/path` of the active tab (query and fragment
+  stripped before emission)
+- domain (lowercased)
+- tab title (verbatim, same caveats as sway window titles)
+- window id, tab id, audible / muted / pinned flags
+- navigation transition type for committed navigations
+- system idle state from `idle.onStateChanged`
+
+Does **not** capture:
+
+- page bodies, form contents, typed input, password fields
+- cookies, headers, request/response bodies
+- full browsing history (no `history.search` calls)
+- screenshots or DOM scraping
+- private (incognito) windows or tabs
+- `about:`, `moz-extension:`, `chrome:`, `resource:`, `view-source:`,
+  `data:`, `blob:`, `javascript:`, or (by default) `file:` URLs
+
+Redaction is applied twice — once in the extension, once in the host —
+so a buggy or hostile extension cannot bypass the policy by skipping its
+own filter. The host always re-stamps `source="firefox"`; the extension
+cannot lie about provenance.
+
+The downstream segmentizer joins `browser_tab_segment` against
+`focus_segment` to discount in-browser dwell that happened while Sway
+was focused on another application.
+
 ## Future producers
 
-- Browser URLs: from a dedicated firefox extension + native host.
 - Shell commands / cwd: from zsh `preexec` / `precmd` hooks.
 
 No producer should rely on title-scraping for content it can capture

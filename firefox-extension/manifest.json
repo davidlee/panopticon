@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "Panopticon Firefox Capture",
+  "name": "Panopticon Browser Capture",
   "version": "0.1.0",
   "description": "Records active-tab attention signals to the panopticon native messaging host.",
   "icons": {

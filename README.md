@@ -23,16 +23,20 @@ watcher.
 
 ```
 ~/.local/state/behaviour/
-  raw/                 per-producer per-day JSONL; default retain 7 days
-  segments/            derived focus intervals; default retain 90 days
-  histograms/          daily aggregates; retained forever
-  current/             last-known state per producer (atomic-replaced)
+  raw/sway-YYYY-MM-DD.jsonl        compositor events; retain 7 days (only once segmented)
+  raw/firefox-YYYY-MM-DD.jsonl     browser events;    retain 7 days (only once segmented)
+  segments/focus-YYYY-MM-DD.jsonl  derived from sway;    retain 90 days
+  segments/browser-YYYY-MM-DD.jsonl  derived from firefox; retain 90 days
+  histograms/daily-YYYY-MM-DD.json   per-day aggregates (focus + browser merged); retained forever
+  current/sway.json                  last-known sway state (atomic-replaced)
 ```
 
 Append-only JSONL. POSIX `O_APPEND` writes are line-atomic up to
 `PIPE_BUF` (4 KiB on Linux), so multiple producers may write
-concurrently without coordination. See `docs/schema.md` for the wire
-format and `docs/privacy.md` for what is and isn't captured.
+concurrently without coordination. Retention is source-aware: a raw
+file is deleted only once its matching segment file exists, so a
+missed segmentizer run cannot lose data. See `docs/schema.md` for the
+wire format and `docs/privacy.md` for what is and isn't captured.
 
 ## Status
 
@@ -51,6 +55,8 @@ format and `docs/privacy.md` for what is and isn't captured.
 
 ## Manual smoke
 
+### Sway watcher
+
 ```sh
 # Inside a graphical-session.target sway:
 nix run .#panopticon -- panopticon-sway -vv
@@ -58,6 +64,35 @@ nix run .#panopticon -- panopticon-sway -vv
 # In another terminal:
 tail -f ~/.local/state/behaviour/raw/sway-$(date +%Y-%m-%d).jsonl
 cat ~/.local/state/behaviour/current/sway.json | jq
+```
+
+### Firefox extension
+
+```sh
+# Install the native messaging host manifest:
+uv pip install -e .
+panopticon-firefox-host install-manifest
+
+# Load the extension in Firefox:
+#   about:debugging#/runtime/this-firefox
+#   → "Load Temporary Add-on…"
+#   → pick firefox-extension/manifest.json
+
+tail -f ~/.local/state/behaviour/raw/firefox-$(date +%Y-%m-%d).jsonl
+```
+
+URLs are stripped of query strings and fragments before they leave the
+extension and again at the host; incognito tabs and sensitive schemes
+(`about:`, `moz-extension:`, `data:`, etc.) are dropped at both ends.
+See `firefox-extension/README.md` for the full install + test
+procedure and `browser.local.md` for the design.
+
+### Segmentizer
+
+```sh
+uv run panopticon-segmentize -v
+jq '.per_app_seconds, .per_domain_seconds' \
+  ~/.local/state/behaviour/histograms/daily-$(date +%Y-%m-%d).json
 ```
 
 ## Development

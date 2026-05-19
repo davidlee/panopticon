@@ -1,0 +1,19 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.python-version
+dist/
+build/
+.pytest_cache/
+.ruff_cache/
+
+# nix
+result
+result-*
+.direnv/
+
+# editor
+*~
+.\#*
+\#*\#

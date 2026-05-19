@@ -1,0 +1,35 @@
+[project]
+name = "panopticon"
+version = "0.1.0"
+description = "Local desktop-behaviour capture."
+requires-python = ">=3.12"
+dependencies = [
+  "i3ipc>=2.2.1",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8",
+  "ruff>=0.6",
+]
+
+[project.scripts]
+panopticon-sway = "panopticon.sway_watcher.__main__:main"
+panopticon-segmentize = "panopticon.segmentizer.__main__:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["panopticon"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "B", "UP"]

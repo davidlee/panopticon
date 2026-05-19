@@ -1,0 +1,6 @@
+[Unit]
+Description=panopticon — derive segments + enforce retention
+
+[Service]
+Type=oneshot
+ExecStart=panopticon-segmentize

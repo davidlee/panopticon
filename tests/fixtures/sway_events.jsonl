@@ -1,0 +1,3 @@
+{"v":1,"ts":"2026-05-19T15:42:10.531+10:00","source":"sway","event":"window_focus","con_id":991,"app_id":"firefox","pid":12345,"title":"MDN Web Docs - Mozilla Firefox","workspace":"2:web","output":"DP-1"}
+{"v":1,"ts":"2026-05-19T15:43:02.114+10:00","source":"sway","event":"window_title","con_id":991,"app_id":"firefox","pid":12345,"old_title":"New Tab - Mozilla Firefox","title":"Sway IPC - Mozilla Firefox","workspace":"2:web"}
+{"v":1,"ts":"2026-05-19T15:44:00.000+10:00","source":"sway","event":"workspace_focus","old_workspace":"1:term","workspace":"2:web","output":"DP-1"}

@@ -4,11 +4,13 @@ Read `README.md` first, then this. Caveman OK; technical substance below.
 
 ## Status (2026-05-19)
 
-**v0.1 sway watcher** built end-to-end and smoke-confirmed against a
-live compositor. Daemon runs via `nix run .#panopticon -- -vv`, writes
-to `~/.local/state/behaviour/{raw,current}/`, 76 unit tests + ruff
-clean. Manual smoke verified: focus / title / workspace events flow
-to JSONL on real activity.
+**v0.1 sway watcher + segmentizer** built end-to-end and smoke-confirmed
+against a live compositor. Daemon runs via `nix run .#panopticon -- -vv`,
+writes to `~/.local/state/behaviour/{raw,current}/`. Nightly
+`panopticon-segmentize` derives `segments/focus-<day>.jsonl`,
+`histograms/daily-<day>.json`, and enforces per-tier retention. 105 unit
+tests + ruff clean. Manual smoke verified: 1110 raw events on real
+activity → 75 focus_segments, plausible per-app totals.
 
 ## Architecture
 
@@ -29,6 +31,10 @@ Modules (each tested in isolation, pure where possible):
 | `panopticon/sway_watcher/runner.py` | `process_session` + `run_watcher`; `AsyncSession` / `AsyncSwayClient` protocols |
 | `panopticon/sway_watcher/_i3ipc.py` | i3ipc-python adapter — only place that imports `i3ipc` |
 | `panopticon/sway_watcher/__main__.py` | argparse + `asyncio.run` + signal handlers |
+| `panopticon/segmentizer/derive.py` | `derive_segments` — pure raw-event → `focus_segment` collapser |
+| `panopticon/segmentizer/histogram.py` | `aggregate` — per-app / per-workspace / per-hour day totals |
+| `panopticon/segmentizer/retention.py` | `enforce` — 7d raw (only if segmented) / 90d segments / ∞ histograms |
+| `panopticon/segmentizer/__main__.py` | `run(root, today=)` + argparse for `panopticon-segmentize` |
 
 Two protocols (`AsyncSession`, `AsyncSwayClient`) form the testability
 boundary. The runner never imports `i3ipc`; adapter swap (wlroots, kde,
@@ -38,47 +44,52 @@ fake) is one new module.
 
 ```
 ~/.local/state/behaviour/
-  raw/sway-YYYY-MM-DD.jsonl    per-source per-day; default retain 7d (NOT YET ENFORCED)
+  raw/sway-YYYY-MM-DD.jsonl    per-source per-day; retain 7d (only if segmented)
   current/sway.json             last known focused state (atomic-replace)
-  segments/focus-YYYY-MM-DD.jsonl  derived; retain 90d (NOT YET BUILT)
-  histograms/daily-YYYY-MM-DD.json  per-day aggregates; retain ∞ (NOT YET BUILT)
+  segments/focus-YYYY-MM-DD.jsonl  derived; retain 90d
+  histograms/daily-YYYY-MM-DD.json  per-day aggregates; retain ∞
 ```
 
 ## Pending work (priority order)
 
-1. **`~/flakes/modules/home/behaviour.nix`** — wire panopticon as flake
-   input (start with `path:/home/david/dev/panopticon`, switch to
-   `git+file://` once stable). Add systemd user unit
-   `panopticon-sway.{service}` with `Type=simple`, `Restart=always`,
-   `After=graphical-session.target`. Reference unit text already in
-   `systemd/sway-watcher.service`. User triggers
-   `home-manager switch --flake ~/flakes#david`.
-
-2. **Segmentizer** (`panopticon-segmentize` is a stub that raises
-   NotImplementedError):
-   - `segmentizer/derive.py` — collapse contiguous focus events on
-     same `(app_id, workspace)` into `focus_segment` events
-   - `segmentizer/histogram.py` — per-day aggregates: per-app
-     seconds, per-workspace seconds, per-hour distribution
-   - `segmentizer/retention.py` — enforce per-tier TTL with
-     atomic-rename writes; never delete unsegmented raw
-   - `segmentizer/__main__.py` — wire as `oneshot` + daily timer
-     (template in `systemd/segmentizer.{service,timer}`)
-
-3. **SATAN consumer** (lives in `~/.emacs.d/satan/`, not this repo):
-   `activity_read` tool that reads `~/.local/state/behaviour/raw/`
+1. **SATAN consumer** (lives in `~/.emacs.d/satan/`, not this repo):
+   `activity_read` tool that reads
+   `~/.local/state/behaviour/{segments,histograms}/` (raw as fallback)
    and returns aggregated text to the LLM. Tracked separately in
    `~/.emacs.d/` SATAN tasks.
+
+2. **Flake input stability**: `~/flakes/flake.nix` uses
+   `panopticon.url = "path:/home/david/dev/panopticon"`. Switch to
+   `git+file:///home/david/dev/panopticon` (or a real remote) once the
+   churn slows so home-manager evaluates against a clean tree instead
+   of the dirty working copy.
+
+3. **Open design questions** worth revisiting once data accumulates:
+   - Idle detection — long unbroken segments overstate active focus.
+     Could split when no input events arrive for N minutes (needs a
+     secondary signal — `swayidle` or libinput).
+   - Title-change segmentation — currently grouped only by
+     `(app_id, workspace)`. Browser tabs / editor buffers may warrant
+     a finer cut once we know what consumers want.
+   - Segments-file naming: currently `focus-<day>.jsonl` (single
+     event-type). If we add another segment type (e.g. browser tabs)
+     we may want `<source>-<day>.jsonl` like raw/. Retention already
+     keys off the trailing `-YYYY-MM-DD.jsonl` suffix so renaming is
+     cheap.
 
 ## Smoke recipe
 
 ```sh
 cd ~/dev/panopticon
-nix run .#panopticon -- -vv             # daemon in terminal A
+nix run .#panopticon -- -vv             # watcher in terminal A
 # in terminal B:
 ls -la ~/.local/state/behaviour/raw/
 jq < ~/.local/state/behaviour/current/sway.json
 tail -f ~/.local/state/behaviour/raw/sway-$(date +%Y-%m-%d).jsonl
+
+# segmentizer (one-shot)
+uv run --extra dev python -m panopticon.segmentizer -vv
+jq '.per_app_seconds' ~/.local/state/behaviour/histograms/daily-$(date +%Y-%m-%d).json
 ```
 
 ## Gotchas debugged this session
@@ -119,9 +130,29 @@ nix build .#panopticon --no-link        # nix build with checkPhase
 nix run .#panopticon -- -vv             # run watcher
 ```
 
+## Flake integration
+
+Home-manager module lives in `~/flakes/modules/home/nixos/behaviour.nix`
+(this repo only ships the package + systemd unit text). It declares:
+
+- `panopticon-sway.service` (simple, `Restart=always`, bound to
+  `graphical-session.target`)
+- `panopticon-segmentize.service` (`Type=oneshot`)
+- `panopticon-segmentize.timer` (`OnCalendar=*-*-* 03:30:00`,
+  `Persistent=true`, `RandomizedDelaySec=15min`)
+
+Flake input is `path:/home/david/dev/panopticon` (dirty-tree
+warning is expected during local iteration). Activation:
+`home-manager switch --flake ~/flakes#david`.
+
 ## Commit log
 
 ```
+75502e0 feat(segmentizer): wire panopticon-segmentize entrypoint
+5ed8174 feat(segmentizer/retention): per-tier TTL
+44d8ed7 feat(segmentizer/histogram): per-day aggregates
+8318733 feat(segmentizer/derive): focus events → focus_segment
+09b2030 docs: HANDOVER.md for the next agent
 7b3fcdc fix: debug output
 8fc45bf fix(flake): set meta.mainProgram so nix run picks the watcher
 daeee8a fix(flake): add pytest-asyncio to nativeCheckInputs

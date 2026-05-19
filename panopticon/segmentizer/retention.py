@@ -3,11 +3,15 @@
 Three tiers, three rules:
 
 - ``raw/`` keeps the last ``raw_days`` (default 7). A raw file is only
-  deleted once a corresponding segments file exists for the same day —
-  unsegmented raw is preserved indefinitely so a missed segmentizer run
-  cannot lose data.
+  deleted once the segment file derived from the *same source* exists
+  for the same day — unsegmented raw is preserved indefinitely so a
+  missed segmentizer run cannot lose data.
 - ``segments/`` keeps the last ``segment_days`` (default 90).
 - ``histograms/`` is retained forever and never touched here.
+
+The raw → segment mapping (``sway`` → ``focus``, ``firefox`` →
+``browser``) is duplicated in the segmentizer ``_SOURCES`` tuple; if
+sources are added there, mirror them in :data:`_SEGMENT_PREFIX_FOR_RAW`.
 
 All operations are pure unlinks; segment/histogram producers handle
 their own atomic-rename writes.
@@ -18,6 +22,11 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
+
+_SEGMENT_PREFIX_FOR_RAW: dict[str, str] = {
+    "sway": "focus",
+    "firefox": "browser",
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,7 +58,7 @@ def enforce(
                 continue
             if (now - day).days <= raw_days:
                 continue
-            if _has_segments_for(seg_dir, day):
+            if _has_matching_segment(seg_dir, path.name, day):
                 path.unlink()
                 removed_raw.append(path)
             else:
@@ -81,8 +90,20 @@ def _day_from_name(name: str) -> date | None:
         return None
 
 
-def _has_segments_for(seg_dir: Path, day: date) -> bool:
+def _source_from_raw_name(name: str) -> str | None:
+    """Extract ``"sway"`` from ``"sway-2026-05-19.jsonl"``."""
+    stem = name.rsplit(".", 1)[0]
+    if len(stem) < 11 or stem[-11] != "-":
+        return None
+    return stem[:-11] or None
+
+
+def _has_matching_segment(seg_dir: Path, raw_name: str, day: date) -> bool:
     if not seg_dir.is_dir():
         return False
-    suffix = f"-{day.isoformat()}.jsonl"
-    return any(p.name.endswith(suffix) for p in seg_dir.iterdir())
+    source = _source_from_raw_name(raw_name)
+    seg_prefix = _SEGMENT_PREFIX_FOR_RAW.get(source) if source else None
+    if seg_prefix is None:
+        suffix = f"-{day.isoformat()}.jsonl"
+        return any(p.name.endswith(suffix) for p in seg_dir.iterdir())
+    return (seg_dir / f"{seg_prefix}-{day.isoformat()}.jsonl").exists()

@@ -106,3 +106,51 @@ def test_run_invokes_retention(root: Path):
     # we never re-derive segments for an empty file. The pre-existing segments
     # file is what counts for retention.
     assert not (root / "raw" / f"sway-{old_day}.jsonl").exists()
+
+
+def test_run_derives_browser_segments_and_merges_histogram(root: Path):
+    day = "2026-05-18"
+    sway_events = [
+        make_event(
+            "sway", "snapshot",
+            ts=f"{day}T10:00:00.000+10:00",
+            app_id="firefox", workspace="1",
+        ),
+    ]
+    (root / "raw" / f"sway-{day}.jsonl").write_text(
+        "".join(e.to_json_line() + "\n" for e in sway_events)
+    )
+
+    firefox_events = [
+        make_event(
+            "firefox", "browser_snapshot",
+            ts=f"{day}T10:00:00.000+10:00",
+            window_id=1, tab_id=42,
+            url="https://example.com/", domain="example.com", title="ex",
+        ),
+        make_event(
+            "firefox", "browser_navigation",
+            ts=f"{day}T10:30:00.000+10:00",
+            kind="committed", window_id=1, tab_id=42,
+            url="https://example.com/other", domain="example.com",
+        ),
+    ]
+    (root / "raw" / f"firefox-{day}.jsonl").write_text(
+        "".join(e.to_json_line() + "\n" for e in firefox_events)
+    )
+
+    run(root, today=date(2026, 5, 19))
+
+    browser_path = root / "segments" / f"browser-{day}.jsonl"
+    assert browser_path.exists()
+    with open(browser_path) as fh:
+        segs = list(iter_jsonl(fh))
+    assert [s.event for s in segs] == ["browser_tab_segment", "browser_tab_segment"]
+    assert segs[0].fields["duration_s"] == 1800.0
+
+    hist_path = root / "histograms" / f"daily-{day}.json"
+    h = json.loads(hist_path.read_text())
+    # Merged histogram carries both buckets.
+    assert "per_app_seconds" in h
+    assert "per_domain_seconds" in h
+    assert h["per_domain_seconds"]["example.com"] > 0

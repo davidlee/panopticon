@@ -71,3 +71,29 @@ def test_unparseable_filenames_are_ignored(root: Path):
     junk = touch(root / "raw" / "random.txt")
     enforce(root, now=date(2026, 5, 19))
     assert junk.exists()
+
+
+def test_firefox_raw_requires_browser_segments(root: Path):
+    p = touch(root / "raw" / "firefox-2026-05-01.jsonl")
+    # A focus segment for the same day is not enough: firefox raw must
+    # have a *browser-*.jsonl* segment to be safe to delete.
+    touch(root / "segments" / "focus-2026-05-01.jsonl")
+    r = enforce(root, now=date(2026, 5, 19), raw_days=7)
+    assert p.exists()
+    assert r.skipped_raw_unsegmented == [p]
+
+
+def test_firefox_raw_with_browser_segments_is_deleted(root: Path):
+    p = touch(root / "raw" / "firefox-2026-05-01.jsonl")
+    touch(root / "segments" / "browser-2026-05-01.jsonl")
+    r = enforce(root, now=date(2026, 5, 19), raw_days=7)
+    assert not p.exists()
+    assert r.removed_raw == [p]
+
+
+def test_sway_raw_requires_focus_not_browser_segments(root: Path):
+    p = touch(root / "raw" / "sway-2026-05-01.jsonl")
+    touch(root / "segments" / "browser-2026-05-01.jsonl")
+    r = enforce(root, now=date(2026, 5, 19), raw_days=7)
+    assert p.exists()
+    assert r.skipped_raw_unsegmented == [p]

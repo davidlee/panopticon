@@ -23,12 +23,20 @@ from datetime import date, datetime, time, timedelta
 from pathlib import Path
 
 from panopticon.schema import Event, iter_jsonl
+from panopticon.segmentizer.browser import derive_browser_segments
 from panopticon.segmentizer.derive import derive_segments
-from panopticon.segmentizer.histogram import aggregate
+from panopticon.segmentizer.histogram import aggregate, aggregate_browser
 from panopticon.segmentizer.retention import enforce
 from panopticon.store import state_dir
 
 log = logging.getLogger("panopticon.segmentizer")
+
+# Per-source pipeline: (raw filename prefix, segment filename prefix, derive fn).
+# Adding a producer is a one-line change here.
+_SOURCES = (
+    ("sway", "focus", derive_segments),
+    ("firefox", "browser", derive_browser_segments),
+)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -46,34 +54,34 @@ def run(root: Path, *, today: date) -> None:
         log.info("no raw/ at %s; nothing to do", root)
         return
 
-    days_segmented: list[str] = []
+    days_touched: set[str] = set()
 
-    for raw_path in sorted(raw_dir.iterdir()):
-        day_str = _day_from_name(raw_path.name)
-        if day_str is None:
-            continue
-        events = _load_jsonl(raw_path)
-        if not events:
-            continue
+    for raw_prefix, seg_prefix, derive in _SOURCES:
+        for raw_path in sorted(raw_dir.glob(f"{raw_prefix}-*.jsonl")):
+            day_str = _day_from_name(raw_path.name)
+            if day_str is None:
+                continue
+            events = _load_jsonl(raw_path)
+            if not events:
+                continue
+            day = date.fromisoformat(day_str)
+            if day < today:
+                close_at = _next_day_midnight(day, events[-1].ts)
+            else:
+                close_at = events[-1].ts
+            segs = list(derive(events, close_at=close_at))
+            seg_path = root / "segments" / f"{seg_prefix}-{day_str}.jsonl"
+            _atomic_write_text(
+                seg_path, "".join(s.to_json_line() + "\n" for s in segs)
+            )
+            log.info("%s %s: %d segments", seg_prefix, day_str, len(segs))
+            days_touched.add(day_str)
 
-        day = date.fromisoformat(day_str)
-        if day < today:
-            close_at = _next_day_midnight(day, events[-1].ts)
-        else:
-            close_at = events[-1].ts
-
-        segs = list(derive_segments(events, close_at=close_at))
-        seg_path = root / "segments" / f"focus-{day_str}.jsonl"
-        _atomic_write_text(
-            seg_path, "".join(s.to_json_line() + "\n" for s in segs)
-        )
-        log.info("segments %s: %d", day_str, len(segs))
-        days_segmented.append(day_str)
-
-    for day_str in days_segmented:
-        seg_path = root / "segments" / f"focus-{day_str}.jsonl"
-        segs = _load_jsonl(seg_path)
-        h = aggregate(segs, day=day_str)
+    for day_str in sorted(days_touched):
+        focus_segs = _load_jsonl(root / "segments" / f"focus-{day_str}.jsonl")
+        browser_segs = _load_jsonl(root / "segments" / f"browser-{day_str}.jsonl")
+        h = aggregate(focus_segs, day=day_str)
+        h.update(aggregate_browser(browser_segs, day=day_str))
         hist_path = root / "histograms" / f"daily-{day_str}.json"
         _atomic_write_text(
             hist_path, json.dumps(h, separators=(",", ":"), ensure_ascii=False)

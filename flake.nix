@@ -17,7 +17,7 @@
           src = ./.;
           build-system = with pkgs.python3Packages; [ hatchling ];
           dependencies = with pkgs.python3Packages; [ i3ipc ];
-          nativeCheckInputs = with pkgs.python3Packages; [ pytestCheckHook ];
+          nativeCheckInputs = with pkgs.python3Packages; [ pytestCheckHook pytest-asyncio ];
         };
       in {
         packages.default = panopticon;

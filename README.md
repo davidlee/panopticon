@@ -31,7 +31,25 @@ format and `docs/privacy.md` for what is and isn't captured.
 
 ## Status
 
-Scaffold. No working daemon code yet.
+- `panopticon-sway` watcher complete: 76 unit tests, lint clean. Manual
+  smoke against a running compositor still pending. Reconnect /
+  backoff / per-day rotation / atomic current-state snapshot all
+  exercised in tests.
+- `panopticon-segmentize` segmentizer: stub only — derivation,
+  histograms, and retention land next.
+- Systemd unit files in `systemd/` are reference text; final wiring
+  lives in `~/flakes/modules/home/behaviour.nix`.
+
+## Manual smoke
+
+```sh
+# Inside a graphical-session.target sway:
+nix run .#panopticon -- panopticon-sway -vv
+
+# In another terminal:
+tail -f ~/.local/state/behaviour/raw/sway-$(date +%Y-%m-%d).jsonl
+cat ~/.local/state/behaviour/current/sway.json | jq
+```
 
 ## Development
 

@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# Propagate ~/dev/panopticon changes into the running home-manager
+# services (panopticon-sway, panopticon-segmentize).
+#
+# Why: the home-manager modules in ~/flakes pin panopticon by narHash,
+# so source edits do NOT reach the user's systemd units until the
+# panopticon flake input is re-locked and home-manager re-activated.
+# Without this, a fresh build of ./result will sit unused while systemd
+# keeps running the previous /nix/store path.
+set -euo pipefail
+
+FLAKES_DIR="${PANOPTICON_FLAKES_DIR:-$HOME/flakes}"
+HM_TARGET="${PANOPTICON_HM_TARGET:-david}"
+
+if [[ ! -d "$FLAKES_DIR" ]]; then
+  echo "reload-hm: $FLAKES_DIR not found (set PANOPTICON_FLAKES_DIR)" >&2
+  exit 1
+fi
+
+echo "==> nix flake update panopticon (in $FLAKES_DIR)"
+nix flake update panopticon --flake "$FLAKES_DIR"
+
+echo "==> home-manager switch --flake $FLAKES_DIR#$HM_TARGET"
+home-manager switch --flake "$FLAKES_DIR#$HM_TARGET"
+
+echo "==> systemctl --user reset-failed panopticon-segmentize.service"
+systemctl --user reset-failed panopticon-segmentize.service 2>/dev/null || true
+
+echo "done. verify with:"
+echo "  systemctl --user cat panopticon-segmentize.service | head -3"
+echo "  systemctl --user start panopticon-segmentize.service"

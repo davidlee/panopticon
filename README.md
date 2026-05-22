@@ -107,3 +107,37 @@ pytest
 # nix build
 nix build .#panopticon
 ```
+
+### Propagating changes to the running daemon
+
+The user systemd units (`panopticon-sway`, `panopticon-segmentize`) are
+wired up by home-manager via `~/flakes/modules/home/nixos/behaviour.nix`,
+which pulls panopticon in as a `path:/home/david/dev/panopticon` flake
+input. That input is locked by narHash, so source edits in this repo do
+**not** reach systemd until the lock is bumped and home-manager is
+re-activated. `nix build .#panopticon` updates `./result` but does
+nothing to the unit's `ExecStart`, which stays pinned to the previous
+`/nix/store/...-panopticon-0.1.0/bin/...` path.
+
+Helper script — runs the full cycle:
+
+```sh
+./bin/reload-hm
+```
+
+It does:
+
+1. `nix flake update panopticon` in `~/flakes` (re-locks to current HEAD
+   of this working tree).
+2. `home-manager switch --flake ~/flakes#david` (rebuilds the user
+   environment, relinks the systemd units to the new store path).
+3. `systemctl --user reset-failed panopticon-segmentize.service` (clears
+   any prior failure so the next timer fires cleanly).
+
+Override the flakes dir / HM target with `PANOPTICON_FLAKES_DIR` and
+`PANOPTICON_HM_TARGET` env vars.
+
+If you skip this, symptom is: code change visible in the repo, tests
+pass, `nix build` succeeds, but `systemctl --user status
+panopticon-segmentize` still references the old store hash and runs old
+behaviour (or worse, an old `NotImplementedError` stub).

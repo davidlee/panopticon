@@ -71,7 +71,12 @@ Derived by `panopticon-segmentize` and written to
 `segments/<prefix>-YYYY-MM-DD.jsonl`.
 
 - `focus_segment` (`focus-*.jsonl`) — contiguous `(app_id, workspace)`
-  interval. Source `sway`.
+  interval. Source `sway`. Fields: `app_id`, `workspace`, `start_ts`,
+  `end_ts`, `duration_s`, and optional `last_title` — the most recent
+  window title observed during the segment (from `window_focus`,
+  `window_title`, or `snapshot` events). `last_title` is omitted when
+  no title was observed; downstream consumers must treat absence as
+  unknown.
 - `browser_tab_segment` (`browser-*.jsonl`) — contiguous in-browser
   attention on one URL. Fields: `start_ts`, `end_ts`, `duration_s`,
   `window_id`, `tab_id`, `url`, `domain`, `title_start`, `title_end`,

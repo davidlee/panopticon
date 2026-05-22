@@ -160,3 +160,44 @@ def test_focus_then_unfocus_then_focus():
     assert [s.fields["app_id"] for s in segs] == ["firefox", "ghostty"]
     assert segs[0].fields["end_ts"] == ts(2)
     assert segs[1].fields["start_ts"] == ts(3)
+
+
+# ---- last_title ----
+
+
+def test_window_title_recorded_as_last_title():
+    segs = list(derive_segments([
+        snap(ts(0), "firefox", "1"),
+        title(ts(1), "firefox", "1", "Foo"),
+    ], close_at=ts(5)))
+    assert len(segs) == 1
+    assert segs[0].fields["last_title"] == "Foo"
+
+
+def test_no_title_observed_omits_last_title():
+    segs = list(derive_segments([
+        snap(ts(0), "firefox", "1"),
+    ], close_at=ts(5)))
+    assert len(segs) == 1
+    assert "last_title" not in segs[0].fields
+
+
+def test_window_title_does_not_split_segment():
+    segs = list(derive_segments([
+        snap(ts(0), "firefox", "1"),
+        title(ts(1), "firefox", "1", "Foo"),
+        title(ts(2), "firefox", "1", "Bar"),
+    ], close_at=ts(5)))
+    assert len(segs) == 1
+    assert segs[0].fields["last_title"] == "Bar"
+
+
+def test_last_title_takes_most_recent_value():
+    segs = list(derive_segments([
+        snap(ts(0), "firefox", "1"),
+        title(ts(1), "firefox", "1", "Foo"),
+        title(ts(2), "firefox", "1", "Bar"),
+        title(ts(3), "firefox", "1", "Baz"),
+    ], close_at=ts(5)))
+    assert len(segs) == 1
+    assert segs[0].fields["last_title"] == "Baz"

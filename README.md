@@ -1,96 +1,123 @@
 # panopticon
 
-Local desktop-behaviour capture. Producers emit normalized JSONL
-events; consumers (e.g. SATAN) read for aggregation, search, and
-reflection.
+Local desktop-behaviour capture for Linux (Sway). Producers emit
+normalized JSONL events; a batch segmentizer derives attention spans
+and daily histograms. Consumers (e.g.
+[SATAN](https://github.com/davidlee/emacs-config/tree/main/satan)) read the derived
+data for aggregation, search, and self-reflection on digital habits.
+
+Everything stays on disk at `~/.local/state/behaviour/`. Nothing
+leaves the machine.
+
+## Architecture
+
+```
+ sway ipc            firefox extension          (future: ghostty,
+ ─────────┐          ──────────────┐             emacs, idle)
+          │                        │                   │
+   panopticon-sway    panopticon-firefox-host          │
+          │                        │                   │
+          └──────────┬─────────────┴───────────────────┘
+                     ▼
+          raw/  (per-source, per-day JSONL)
+                     │
+          panopticon-segmentize  (nightly batch)
+                     │
+          ┌──────────┼──────────┐
+          ▼          ▼          ▼
+     segments/   histograms/  current/
+     (90 d)      (forever)    (atomic snapshot)
+```
 
 ## Components
 
-- `panopticon-sway` — Sway IPC watcher daemon. Writes raw
-  focus/window events to `~/.local/state/behaviour/raw/sway-YYYY-MM-DD.jsonl`.
-- `panopticon-firefox-host` — Native messaging host for the Firefox
-  WebExtension in `firefox-extension/`. Writes raw browser attention
-  events to `~/.local/state/behaviour/raw/firefox-YYYY-MM-DD.jsonl`.
-  See `firefox-extension/README.md` to install.
-- `panopticon-segmentize` — Nightly batch. Derives `focus_segment` and
-  `browser_tab_segment` events, computes daily histograms (per-app,
-  per-workspace, per-domain, per-hour), enforces retention policy.
+| Binary | What it does |
+|--------|-------------|
+| `panopticon-sway` | Sway IPC watcher daemon. Tracks window focus, titles, workspaces. Reconnects with exponential backoff. |
+| `panopticon-firefox-host` | Native messaging host for the Firefox WebExtension. Receives browser attention events, re-validates and writes JSONL. |
+| `panopticon-segmentize` | Nightly batch. Derives `focus_segment` and `browser_tab_segment` events, computes daily histograms, enforces retention. |
 
-Planned producers: ghostty/zsh shell hook, emacs producer, idle/lock
-watcher.
+The Firefox WebExtension lives in `firefox-extension/`. See its
+[README](firefox-extension/README.md) for install instructions.
 
-## Storage
+Planned producers: ghostty/zsh shell hook, emacs, idle/lock watcher.
+
+## Storage layout
 
 ```
 ~/.local/state/behaviour/
-  raw/sway-YYYY-MM-DD.jsonl        compositor events; retain 7 days (only once segmented)
-  raw/firefox-YYYY-MM-DD.jsonl     browser events;    retain 7 days (only once segmented)
-  segments/focus-YYYY-MM-DD.jsonl  derived from sway;    retain 90 days
-  segments/browser-YYYY-MM-DD.jsonl  derived from firefox; retain 90 days
-  histograms/daily-YYYY-MM-DD.json   per-day aggregates (focus + browser merged); retained forever
-  current/sway.json                  last-known sway state (atomic-replaced)
+├── raw/
+│   ├── sway-YYYY-MM-DD.jsonl         7-day TTL (only after segmented)
+│   └── firefox-YYYY-MM-DD.jsonl      7-day TTL (only after segmented)
+├── segments/
+│   ├── focus-YYYY-MM-DD.jsonl        90-day TTL
+│   └── browser-YYYY-MM-DD.jsonl      90-day TTL
+├── histograms/
+│   └── daily-YYYY-MM-DD.json         kept forever
+└── current/
+    └── sway.json                     last-known compositor state
 ```
 
-Append-only JSONL. POSIX `O_APPEND` writes are line-atomic up to
-`PIPE_BUF` (4 KiB on Linux), so multiple producers may write
-concurrently without coordination. Retention is source-aware: a raw
-file is deleted only once its matching segment file exists, so a
-missed segmentizer run cannot lose data. See `docs/schema.md` for the
-wire format and `docs/privacy.md` for what is and isn't captured.
+Writes use POSIX `O_APPEND` — line-atomic up to `PIPE_BUF` (4 KiB on
+Linux), so concurrent producers need no coordination. Retention is
+source-aware: raw files are deleted only after matching segments exist.
 
-## Status
+## Event schema
 
-- `panopticon-sway` watcher complete: lint clean, unit-tested for
-  reconnect / backoff / per-day rotation / atomic current-state
-  snapshot.
-- `panopticon-segmentize` complete: per-source segment derivation
-  (sway → `focus_segment`, firefox → `browser_tab_segment`), merged
-  daily histograms, per-tier TTL retention.
-- `panopticon-firefox-host` + `firefox-extension/` initial cut:
-  protocol/validation/install paths unit-tested; extension load via
-  `about:debugging` documented in `firefox-extension/README.md`.
-  Manual smoke (real Firefox, real Sway join) still pending.
-- Systemd unit files in `systemd/` are reference text; final wiring
-  lives in `~/flakes/modules/home/behaviour.nix`.
+Every event is one JSON line:
 
-## Manual smoke
+```json
+{"v": 1, "ts": "2026-05-27T09:15:03.412+10:00", "source": "sway", "event": "window_focus", ...}
+```
 
-### Sway watcher
+See [`docs/schema.md`](docs/schema.md) for the full reference and
+[`docs/privacy.md`](docs/privacy.md) for what is and isn't captured.
+
+## Privacy
+
+- No keystrokes, clipboard, screenshots, or page content.
+- URLs stripped to `scheme://host/path` (query + fragment removed).
+- Incognito tabs and sensitive schemes (`about:`, `moz-extension:`,
+  `data:`, etc.) dropped at both extension and host.
+- Redaction applied twice (extension → host) so a buggy extension
+  cannot bypass the policy.
+- All data local. No network calls.
+
+## Quick start
+
+### Install
 
 ```sh
-# Inside a graphical-session.target sway:
-nix run .#panopticon -- panopticon-sway -vv
+# nix (recommended)
+nix build .#panopticon
 
-# In another terminal:
+# or: local venv
+uv venv && uv pip install -e ".[dev]"
+```
+
+### Run the sway watcher
+
+```sh
+panopticon-sway -vv
 tail -f ~/.local/state/behaviour/raw/sway-$(date +%Y-%m-%d).jsonl
-cat ~/.local/state/behaviour/current/sway.json | jq
 ```
 
-### Firefox extension
+### Run the firefox pipeline
 
 ```sh
-# Install the native messaging host manifest:
-uv pip install -e .
+# install native messaging host manifest
 panopticon-firefox-host install-manifest
 
-# Load the extension in Firefox:
-#   about:debugging#/runtime/this-firefox
-#   → "Load Temporary Add-on…"
-#   → pick firefox-extension/manifest.json
+# load extension in Firefox:
+#   about:debugging → Load Temporary Add-on → firefox-extension/manifest.json
 
 tail -f ~/.local/state/behaviour/raw/firefox-$(date +%Y-%m-%d).jsonl
 ```
 
-URLs are stripped of query strings and fragments before they leave the
-extension and again at the host; incognito tabs and sensitive schemes
-(`about:`, `moz-extension:`, `data:`, etc.) are dropped at both ends.
-See `firefox-extension/README.md` for the full install + test
-procedure and `browser.local.md` for the design.
-
-### Segmentizer
+### Run the segmentizer
 
 ```sh
-uv run panopticon-segmentize -v
+panopticon-segmentize -v
 jq '.per_app_seconds, .per_domain_seconds' \
   ~/.local/state/behaviour/histograms/daily-$(date +%Y-%m-%d).json
 ```
@@ -98,46 +125,33 @@ jq '.per_app_seconds, .per_domain_seconds' \
 ## Development
 
 ```sh
-# local venv (optional)
-uv venv && uv pip install -e ".[dev]"
-
-# tests
-pytest
-
-# nix build
-nix build .#panopticon
+pytest              # 175 tests
+ruff check .        # lint
+nix build .#panopticon --no-link   # nix build sanity
 ```
 
-### Propagating changes to the running daemon
+### Propagating changes to systemd
 
-The user systemd units (`panopticon-sway`, `panopticon-segmentize`) are
-wired up by home-manager via `~/flakes/modules/home/nixos/behaviour.nix`,
-which pulls panopticon in as a `path:/home/david/dev/panopticon` flake
-input. That input is locked by narHash, so source edits in this repo do
-**not** reach systemd until the lock is bumped and home-manager is
-re-activated. `nix build .#panopticon` updates `./result` but does
-nothing to the unit's `ExecStart`, which stays pinned to the previous
-`/nix/store/...-panopticon-0.1.0/bin/...` path.
-
-Helper script — runs the full cycle:
+The user units (`panopticon-sway.service`, `panopticon-segmentize.timer`)
+are wired via home-manager, which pins to a nix flake lockfile. Source
+edits don't reach running daemons until the lock is bumped:
 
 ```sh
 ./bin/reload-hm
 ```
 
-It does:
+This updates the flake lock in `~/flakes`, runs `home-manager switch`,
+and clears any prior service failures. Override paths with
+`PANOPTICON_FLAKES_DIR` and `PANOPTICON_HM_TARGET`.
 
-1. `nix flake update panopticon` in `~/flakes` (re-locks to current HEAD
-   of this working tree).
-2. `home-manager switch --flake ~/flakes#david` (rebuilds the user
-   environment, relinks the systemd units to the new store path).
-3. `systemctl --user reset-failed panopticon-segmentize.service` (clears
-   any prior failure so the next timer fires cleanly).
+## Adding a new producer
 
-Override the flakes dir / HM target with `PANOPTICON_FLAKES_DIR` and
-`PANOPTICON_HM_TARGET` env vars.
+1. Write events matching the [schema](docs/schema.md) to
+   `raw/<source>-YYYY-MM-DD.jsonl` via `panopticon.store.RawStore`.
+2. Add a `derive_<source>_segments()` function in the segmentizer.
+3. Add one row to the `_SOURCES` table in
+   `panopticon/segmentizer/__main__.py`.
 
-If you skip this, symptom is: code change visible in the repo, tests
-pass, `nix build` succeeds, but `systemctl --user status
-panopticon-segmentize` still references the old store hash and runs old
-behaviour (or worse, an old `NotImplementedError` stub).
+## License
+
+Private / not yet licensed.

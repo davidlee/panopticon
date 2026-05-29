@@ -61,6 +61,16 @@ Until the extension is signed, load it as a temporary add-on:
 The temporary add-on persists only until Firefox restarts; reload after
 every restart, or sign the extension for permanent install.
 
+### Package for upload / signing
+
+```bash
+just package-extension    # → panopticon.zip (repo root)
+```
+
+`manifest.json` sits at the archive root, as AMO and `web-ext sign`
+require. Upload `panopticon.zip` to addons.mozilla.org (or feed it to
+`web-ext sign`) to produce a signed `.xpi` for permanent install.
+
 ### 3. Confirm events are flowing
 
 After browsing for a minute or two:

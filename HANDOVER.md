@@ -74,6 +74,16 @@ before deletion; `firefox-<day>.jsonl` requires `browser-<day>.jsonl`.
 Mapping lives in `segmentizer/retention.py:_SEGMENT_PREFIX_FOR_RAW`;
 mirror it when adding sources.
 
+**Day bucketing is on the stamped offset.** `RawStore.write` files an
+event by `event.ts[:10]` — the day *as the producer wrote it*. So every
+producer must stamp **local time with offset** (`+10:00`), not UTC `Z`;
+otherwise its raw files bucket on UTC midnight, splitting a local day
+across two files and tripping `sleipnir-doctor-panopticon` every morning
+until the offset rolls over. Sway stamps local via `schema.utc_now_iso`;
+the firefox extension does too (`background.js:nowIso`, fixed in 0.1.1 —
+it previously emitted `Z`). The doctor now checks both the local- and
+UTC-dated file as a backstop for any future producer that regresses.
+
 ## Pending work (priority order)
 
 1. **Firefox + Sway join layer**. Per `browser.local.md`,
@@ -83,10 +93,11 @@ mirror it when adding sources.
    `segmentizer/join.py` that emits a filtered `attention_segment`
    stream alongside the raw browser segments.
 
-2. **Firefox extension packaging**. Currently loaded as a temporary
-   add-on (`about:debugging` → Load Temporary Add-on); reload on every
-   Firefox restart. Options: AMO signing, self-distribution via update
-   manifest, or `web-ext sign --api-key`. Decision deferred.
+2. **Firefox extension packaging** — *resolved (0.1.1)*. Signed via AMO;
+   `just package-extension` builds `panopticon.zip` (manifest at archive
+   root) for upload. Each upload needs a fresh `manifest.json` version
+   bump — AMO rejects duplicates. `web-ext` is in the devShell for
+   `web-ext sign --api-key` if scripting it later.
 
 3. **SATAN consumer** (lives in `~/.emacs.d/satan/`, not this repo):
    `activity_read` tool that reads

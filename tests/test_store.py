@@ -78,3 +78,21 @@ def test_close_idempotent(tmp_path):
 def test_path_for_uses_source_and_day(tmp_path):
     store = RawStore("firefox", tmp_path)
     assert store.path_for("2026-05-19") == tmp_path / "raw" / "firefox-2026-05-19.jsonl"
+
+
+def test_buckets_on_the_stamped_offset_not_utc(tmp_path):
+    # Contract the firefox extension must honour: events are bucketed per-day
+    # on the day *as stamped* (ts[:10]). A local-offset timestamp buckets to
+    # the producer's local day, matching sway and the freshness doctor.
+    with RawStore("firefox", tmp_path) as store:
+        store.write(make_event("firefox", "tab", ts="2026-05-29T08:00:00.000+10:00"))
+    assert (tmp_path / "raw" / "firefox-2026-05-29.jsonl").exists()
+
+
+def test_utc_stamp_buckets_to_utc_day(tmp_path):
+    # Why the extension must stamp local-offset, not `Z`: a UTC timestamp at
+    # 08:00 local (= previous UTC day in AEST) buckets to the UTC day, splitting
+    # browser data on UTC midnight. Locks the failure mode so it can't regress.
+    with RawStore("firefox", tmp_path) as store:
+        store.write(make_event("firefox", "tab", ts="2026-05-28T22:00:00.000Z"))
+    assert (tmp_path / "raw" / "firefox-2026-05-28.jsonl").exists()

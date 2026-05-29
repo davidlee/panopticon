@@ -6,30 +6,35 @@
     flake-utils.url = "github:numtide/flake-utils";
   };
 
-  outputs = { self, nixpkgs, flake-utils }:
-    flake-utils.lib.eachDefaultSystem (system:
-      let
-        pkgs = import nixpkgs { inherit system; };
-        panopticon = pkgs.python3Packages.buildPythonApplication {
-          pname = "panopticon";
-          version = "0.1.0";
-          pyproject = true;
-          src = ./.;
-          build-system = with pkgs.python3Packages; [ hatchling ];
-          dependencies = with pkgs.python3Packages; [ i3ipc ];
-          nativeCheckInputs = with pkgs.python3Packages; [ pytestCheckHook pytest-asyncio ];
-          meta.mainProgram = "panopticon-sway";
-        };
-      in {
-        packages.default = panopticon;
-        packages.panopticon = panopticon;
+  outputs = {
+    self,
+    nixpkgs,
+    flake-utils,
+  }:
+    flake-utils.lib.eachDefaultSystem (system: let
+      pkgs = import nixpkgs {inherit system;};
+      panopticon = pkgs.python3Packages.buildPythonApplication {
+        pname = "panopticon";
+        version = "0.1.0";
+        pyproject = true;
+        src = ./.;
+        build-system = with pkgs.python3Packages; [hatchling];
+        dependencies = with pkgs.python3Packages; [i3ipc];
+        nativeCheckInputs = with pkgs.python3Packages; [pytestCheckHook pytest-asyncio];
+        meta.mainProgram = "panopticon-sway";
+      };
+    in {
+      packages.default = panopticon;
+      packages.panopticon = panopticon;
 
-        devShells.default = pkgs.mkShell {
-          packages = [
-            (pkgs.python3.withPackages (ps: with ps; [ i3ipc pytest ]))
+      devShells.default = pkgs.mkShell {
+        packages = with pkgs;
+          [web-ext]
+          ++ [
+            (pkgs.python3.withPackages (ps: with ps; [i3ipc pytest]))
             pkgs.ruff
             pkgs.uv
           ];
-        };
-      });
+      };
+    });
 }

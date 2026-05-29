@@ -24,3 +24,7 @@ result-*
 panopticon-firefox.zip
 *.xpi
 web-ext-artifacts/
+# AMO sign/upload byproducts
+.amo-upload-uuid
+*.amo-upload-uuid
+7a904468e18246b786c7-*.zip

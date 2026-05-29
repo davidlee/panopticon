@@ -79,10 +79,22 @@ function send(message) {
 }
 
 function nowIso() {
-  // Date#toISOString returns UTC with `Z`; the panopticon convention is
-  // local-with-offset, but the host accepts either since downstream uses
-  // datetime.fromisoformat. Z is unambiguous so we keep it simple.
-  return new Date().toISOString();
+  // Panopticon convention: local time with explicit UTC offset, millisecond
+  // precision — matches Python datetime.isoformat(timespec="milliseconds").
+  // The raw store buckets per-day on the *stamped* offset (ts[:10]); emitting
+  // UTC `Z` here bucketed browser events on UTC midnight, misaligning them
+  // from sway (local-stamped) and tripping the freshness doctor every morning
+  // until the offset rolled over. Stamp local so the day matches the producer.
+  const d = new Date();
+  const p = (n, w = 2) => String(n).padStart(w, "0");
+  const off = -d.getTimezoneOffset(); // minutes east of UTC
+  const sign = off >= 0 ? "+" : "-";
+  const abs = Math.abs(off);
+  return (
+    `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}` +
+    `T${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}` +
+    `.${p(d.getMilliseconds(), 3)}${sign}${p(Math.floor(abs / 60))}:${p(abs % 60)}`
+  );
 }
 
 function isSensitiveUrl(url) {

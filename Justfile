@@ -25,4 +25,7 @@ package-extension:
     @echo "built {{zip}}:"
     unzip -l {{zip}}
 
+install-manifest:
+    panopticon-firefox-host install-manifest
+
 alias package := package-extension

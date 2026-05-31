@@ -28,7 +28,6 @@
       textContent: article.textContent,
       contentHtml: article.content,
       length: article.length,
-      capturedAt: new Date().toISOString(),
     });
   } catch (e) {
     browser.runtime.sendMessage({

@@ -218,7 +218,6 @@ browser.runtime.onMessage.addListener((msg) => {
     textContent: msg.textContent || "",
     contentHtml: msg.contentHtml || "",
     length: msg.length || 0,
-    capturedAt: msg.capturedAt || nowIso(),
   });
   console.log("[panopticon] content extracted", msg.title || msg.url);
 });

@@ -27,6 +27,16 @@ leaves the machine.
           ▼          ▼          ▼
      segments/   histograms/  current/
      (90 d)      (forever)    (atomic snapshot)
+
+   firefox extension (right-click or 30 s dwell)
+          │
+   Readability.js  (in-browser DOM extraction)
+          │
+   panopticon-firefox-host
+          │
+          ▼
+     content/  (articles.jsonl + markdown)
+     (no retention yet — follow up)
 ```
 
 ## Components
@@ -34,7 +44,7 @@ leaves the machine.
 | Binary | What it does |
 |--------|-------------|
 | `panopticon-sway` | Sway IPC watcher daemon. Tracks window focus, titles, workspaces. Reconnects with exponential backoff. |
-| `panopticon-firefox-host` | Native messaging host for the Firefox WebExtension. Receives browser attention events, re-validates and writes JSONL. |
+| `panopticon-firefox-host` | Native messaging host for the Firefox WebExtension. Receives browser attention events, re-validates and writes JSONL. Routes content extraction to the content store. |
 | `panopticon-segmentize` | Nightly batch. Derives `focus_segment` and `browser_tab_segment` events, computes daily histograms, enforces retention. |
 
 The Firefox WebExtension lives in `firefox-extension/`. See its
@@ -54,8 +64,16 @@ Planned producers: ghostty/zsh shell hook, emacs, idle/lock watcher.
 │   └── browser-YYYY-MM-DD.jsonl      90-day TTL
 ├── histograms/
 │   └── daily-YYYY-MM-DD.json         kept forever
-└── current/
-    └── sway.json                     last-known compositor state
+├── current/
+│   └── sway.json                     last-known compositor state
+└── content/
+    ├── articles.jsonl                index: one JSON object per extracted article
+    └── <hash[:2]>/
+        ├── <hash>.json               raw Readability / Trafilatura output
+        └── <hash>.md                 Markdown with YAML frontmatter
+
+**content/ is not yet retention-managed** — the index and article
+files accumulate indefinitely. Retention is tracked as follow-up work.
 ```
 
 Writes use POSIX `O_APPEND` — line-atomic up to `PIPE_BUF` (4 KiB on
@@ -75,13 +93,28 @@ See [`docs/schema.md`](docs/schema.md) for the full reference and
 
 ## Privacy
 
-- No keystrokes, clipboard, screenshots, or page content.
+- No keystrokes, clipboard, or screenshots.
 - URLs stripped to `scheme://host/path` (query + fragment removed).
 - Incognito tabs and sensitive schemes (`about:`, `moz-extension:`,
   `data:`, etc.) dropped at both extension and host.
 - Redaction applied twice (extension → host) so a buggy extension
   cannot bypass the policy.
 - All data local. No network calls.
+
+### Content extraction
+
+The Firefox extension can extract the readable text of pages the user
+dwells on (30 s auto-trigger) or via right-click → "Extract page
+content for Panopticon". Extraction uses Mozilla Readability on a
+cloned DOM; the extracted HTML is converted to Markdown locally.
+Content is de-duplicated by SHA-256 hash — re-visiting a page does
+not create a new entry. A quality score (0–1) is computed for each
+extraction; consumers should treat scores below 0.3 as likely junk.
+
+Page content is stored in ``~/.local/state/behaviour/content/``
+alongside metadata (URL, title, domain, extractor, quality score).
+The raw extraction JSON is kept to allow re-conversion later without
+re-visiting the page.
 
 ## Quick start
 
@@ -114,6 +147,31 @@ panopticon-firefox-host install-manifest
 tail -f ~/.local/state/behaviour/raw/firefox-$(date +%Y-%m-%d).jsonl
 ```
 
+### Content extraction
+
+The Firefox extension extracts page content on 30 s dwell or right-click.
+Two-stage design:
+
+1. **Browser-side:** Mozilla Readability runs on a cloned DOM, produces
+   cleaned article HTML + text.
+2. **Local fallback:** Trafilatura fetches and extracts URLs not captured
+   in-browser (batch backfill, non-browser sources).
+   **Not yet wired —** the module is implemented and tested but has no
+   CLI entrypoint or daemon; currently dead code.
+
+Watch content flow in:
+
+```sh
+tail -f ~/.local/state/behaviour/content/articles.jsonl
+```
+
+For a specific article's Markdown:
+
+```sh
+# find the hash from articles.jsonl, then:
+cat ~/.local/state/behaviour/content/<hash[:2]>/<hash>.md
+```
+
 ### Run the segmentizer
 
 ```sh
@@ -125,7 +183,7 @@ jq '.per_app_seconds, .per_domain_seconds' \
 ## Development
 
 ```sh
-pytest              # 175 tests
+pytest              # 213 tests
 ruff check .        # lint
 nix build .#panopticon --no-link   # nix build sanity
 ```

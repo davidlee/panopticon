@@ -23,7 +23,9 @@
     "webNavigation",
     "idle",
     "nativeMessaging",
-    "storage"
+    "storage",
+    "scripting",
+    "menus"
   ],
   "host_permissions": [
     "<all_urls>"

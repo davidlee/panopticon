@@ -32,6 +32,7 @@ ALLOWED_EVENT_TYPES = frozenset(
         "browser_navigation",
         "browser_window_focus",
         "browser_idle_state",
+        "browser_content_extracted",
     }
 )
 

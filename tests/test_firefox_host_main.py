@@ -9,6 +9,7 @@ from pathlib import Path
 
 from panopticon.firefox_host import install as install_mod
 from panopticon.firefox_host.__main__ import main, run_loop
+from panopticon.ingest.content import ContentStore, content_dir
 from panopticon.schema import iter_jsonl
 from panopticon.store import RawStore
 
@@ -192,3 +193,79 @@ def test_install_manifest_writes_file(tmp_path: Path) -> None:
     assert rc == 0
     parsed = json.loads(target.read_text())
     assert parsed["path"] == str(fake_bin)
+
+
+# ── content extraction routing ───────────────────────────────────────
+
+
+def test_run_loop_routes_content_extracted_to_content_store(tmp_path: Path) -> None:
+    """browser_content_extracted events bypass RawStore, go to ContentStore."""
+    msg = {
+        "event": "browser_content_extracted",
+        "ts": "2026-05-19T10:00:00.000+10:00",
+        "url": "https://example.com/article",
+        "domain": "example.com",
+        "title": "Test Article",
+        "textContent": "This is a substantial article body. " * 25,
+        "contentHtml": "<p>This is a substantial article body.</p>",
+        "length": 750,
+        "capturedAt": "2026-05-19T10:00:00.000+10:00",
+    }
+    stdin = io.BytesIO(_frame(msg))
+    with RawStore(source="firefox", root=tmp_path) as store:
+        run_loop(stdin, store)
+
+    # Raw store should NOT have this event.
+    raw_out = tmp_path / "raw"
+    if raw_out.exists():
+        raw_files = list(raw_out.glob("*.jsonl"))
+        assert len(raw_files) == 0
+
+    # Content store should have the article.
+    ct_root = content_dir()
+    assert (ct_root / "articles.jsonl").exists()
+    cstore = ContentStore(root=ct_root, domain="example.com")
+    articles = cstore.list_articles()
+    assert len(articles) >= 1
+    assert any(a["url"] == "https://example.com/article" for a in articles)
+
+
+def test_run_loop_skips_empty_content_extracted(tmp_path: Path) -> None:
+    """Content-extracted with empty textContent is skipped."""
+    msg = {
+        "event": "browser_content_extracted",
+        "ts": "2026-05-19T10:00:00.000+10:00",
+        "url": "https://example.com/empty",
+        "domain": "example.com",
+        "title": "Empty",
+        "textContent": "",
+        "contentHtml": "",
+        "length": 0,
+    }
+    stdin = io.BytesIO(_frame(msg))
+    with RawStore(source="firefox", root=tmp_path) as store:
+        run_loop(stdin, store)
+
+    ct_root = content_dir()
+    cstore = ContentStore(root=ct_root, domain="example.com")
+    articles = cstore.list_articles()
+    assert not any(a["url"] == "https://example.com/empty" for a in articles)
+
+
+def test_run_loop_skips_content_extracted_error(tmp_path: Path) -> None:
+    """Content-extracted with an error field is skipped."""
+    msg = {
+        "event": "browser_content_extracted",
+        "ts": "2026-05-19T10:00:00.000+10:00",
+        "url": "https://example.com/fail",
+        "domain": "example.com",
+        "error": "readability_returned_null",
+    }
+    stdin = io.BytesIO(_frame(msg))
+    with RawStore(source="firefox", root=tmp_path) as store:
+        run_loop(stdin, store)
+
+    ct_root = content_dir()
+    cstore = ContentStore(root=ct_root, domain="example.com")
+    articles = cstore.list_articles()
+    assert not any(a["url"] == "https://example.com/fail" for a in articles)

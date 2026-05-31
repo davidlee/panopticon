@@ -19,10 +19,11 @@ import argparse
 import logging
 import sys
 from pathlib import Path
-from typing import BinaryIO
+from typing import Any, BinaryIO
 
 from panopticon.firefox_host import install as install_mod
 from panopticon.firefox_host import protocol, validate
+from panopticon.ingest.content import content_dir
 from panopticon.schema import make_event
 from panopticon.store import RawStore, state_dir
 
@@ -55,7 +56,14 @@ def run_loop(
     *,
     record_file_urls: bool = False,
 ) -> None:
-    """Read framed messages from ``stdin`` until EOF and append to ``store``."""
+    """Read framed messages from ``stdin`` until EOF and append to ``store``.
+
+    ``browser_content_extracted`` events are routed to :class:`ContentStore`
+    instead of the raw JSONL tier (their payloads are too large for the
+    per-day raw files and serve a different consumer).
+    """
+    ct_root = content_dir()
+
     while True:
         try:
             msg = protocol.read_message(stdin)
@@ -71,6 +79,11 @@ def run_loop(
         except validate.ValidationError as exc:
             log.debug("dropped event: %s", exc)
             continue
+
+        if event_name == "browser_content_extracted":
+            _handle_content_extracted(ct_root, ts, fields)
+            continue
+
         store.write(make_event("firefox", event_name, ts=ts, **fields))
 
 
@@ -90,6 +103,49 @@ def _cmd_install_manifest(args: argparse.Namespace) -> int:
     log.info("wrote manifest to %s", target)
     sys.stdout.write(f"{target}\n")
     return 0
+
+
+def _handle_content_extracted(
+    ct_root: Path,
+    ts: str,
+    fields: dict[str, Any],
+) -> None:
+    """Route a browser_content_extracted event to the ContentStore."""
+    from panopticon.ingest.content import ContentStore
+
+    domain = fields.get("domain") or "unknown"
+    url = fields.get("url", "")
+    error = fields.get("error")
+
+    if error:
+        log.debug("content extraction failed for %s: %s", url, error)
+        return
+
+    text_content = fields.get("textContent", "")
+    content_html = fields.get("contentHtml", "")
+
+    if not text_content or not content_html:
+        log.debug("empty content for %s, skipping", url)
+        return
+
+    store = ContentStore(root=ct_root, domain=domain)
+    entry = store.store(
+        url=url,
+        title=fields.get("title"),
+        text_content=text_content,
+        content_html=content_html,
+        byline=fields.get("byline"),
+        excerpt=fields.get("excerpt"),
+        site_name=fields.get("siteName"),
+        published_time=fields.get("publishedTime"),
+        captured_at=fields.get("capturedAt") or ts,
+        extractor="readability",
+    )
+    if entry:
+        log.info("content stored: hash=%s url=%s quality=%s",
+                 entry["content_hash"][:12], url, entry["quality_score"])
+    else:
+        log.debug("content duplicate: %s", url)
 
 
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:

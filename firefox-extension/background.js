@@ -29,10 +29,14 @@ const SENSITIVE_SCHEMES = new Set([
 const STATE_KEY = "panopticon.state";
 const RECONNECT_MIN_MS = 1000;
 const RECONNECT_MAX_MS = 30000;
+const DWELL_MS = 30000; // seconds before attempting Readability extraction
+const MENU_ID = "panopticon-extract";
 
 let port = null;
 let reconnectDelay = RECONNECT_MIN_MS;
 let connecting = false;
+let dwellTimer = null;
+let extractedUrls = new Set(); // URLs already extracted this session
 
 function connect() {
   if (port || connecting) return;
@@ -134,6 +138,91 @@ async function saveState(state) {
   await browser.storage.session.set({ [STATE_KEY]: state });
 }
 
+// ── Content extraction (Readability) ───────────────────────────────
+
+function scheduleDwell(tabId, url) {
+  clearDwell();
+  if (!url || isSensitiveUrl(url)) return;
+  if (isUrlExtracted(url)) return;
+  dwellTimer = setTimeout(() => {
+    injectContentScript(tabId);
+  }, DWELL_MS);
+}
+
+function clearDwell() {
+  if (dwellTimer) {
+    clearTimeout(dwellTimer);
+    dwellTimer = null;
+  }
+}
+
+function injectContentScript(tabId) {
+  browser.scripting.executeScript({
+    target: { tabId },
+    files: ["Readability.js", "content.js"],
+  }).catch((e) => {
+    console.warn("[panopticon] content script injection failed", e.message);
+  });
+}
+
+function recordExtractedUrl(url) {
+  extractedUrls.add(url);
+  // Keep the set bounded.
+  if (extractedUrls.size > 500) {
+    const it = extractedUrls.values();
+    for (let i = 0; i < 100; i++) extractedUrls.delete(it.next().value);
+  }
+}
+
+function isUrlExtracted(url) {
+  if (!url) return false;
+  // Check both full URL and scheme://host/path stripped version.
+  if (extractedUrls.has(url)) return true;
+  try {
+    const u = new URL(url);
+    u.search = "";
+    u.hash = "";
+    return extractedUrls.has(u.toString());
+  } catch (e) {
+    return false;
+  }
+}
+
+browser.runtime.onMessage.addListener((msg) => {
+  if (msg.type !== "content_extracted") return;
+  const r = redact(msg.url);
+  if (!r) return;
+  recordExtractedUrl(r.url);
+
+  if (msg.error) {
+    send({
+      event: "browser_content_extracted",
+      ts: nowIso(),
+      url: r.url,
+      domain: r.domain,
+      error: msg.error,
+    });
+    return;
+  }
+
+  send({
+    event: "browser_content_extracted",
+    ts: nowIso(),
+    url: r.url,
+    domain: r.domain,
+    title: msg.title || null,
+    byline: msg.byline || null,
+    excerpt: msg.excerpt || null,
+    siteName: msg.siteName || null,
+    publishedTime: msg.publishedTime || null,
+    textContent: msg.textContent || "",
+    contentHtml: msg.contentHtml || "",
+    length: msg.length || 0,
+    capturedAt: msg.capturedAt || nowIso(),
+  });
+  console.log("[panopticon] content extracted", msg.title || msg.url);
+});
+
 async function emitForActiveTab(eventName, tab, extra = {}) {
   if (!tab || tab.incognito) return;
   const r = redact(tab.url);
@@ -183,6 +272,8 @@ browser.tabs.onActivated.addListener(async ({ tabId, windowId }) => {
     return;
   }
   await emitForActiveTab("browser_tab_active", tab);
+  const r = redact(tab.url);
+  if (r) scheduleDwell(tab.id, r.url);
 });
 
 browser.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
@@ -196,6 +287,10 @@ browser.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
   };
   if (!(change.title || change.url || change.status || change.audible)) return;
   await emitForActiveTab("browser_tab_updated", tab, { change });
+  if (change.url || change.status === "complete") {
+    const r = redact(tab.url);
+    if (r) scheduleDwell(tab.id, r.url);
+  }
 });
 
 browser.webNavigation.onCommitted.addListener(async (details) => {
@@ -250,6 +345,7 @@ browser.webNavigation.onHistoryStateUpdated.addListener(async (details) => {
 
 browser.windows.onFocusChanged.addListener(async (windowId) => {
   if (windowId === browser.windows.WINDOW_ID_NONE) {
+    clearDwell();
     send({
       event: "browser_window_focus",
       ts: nowIso(),
@@ -283,6 +379,7 @@ try {
 }
 
 browser.idle.onStateChanged.addListener((state) => {
+  if (state === "idle" || state === "locked") clearDwell();
   send({
     event: "browser_idle_state",
     ts: nowIso(),
@@ -290,6 +387,19 @@ browser.idle.onStateChanged.addListener((state) => {
   });
 });
 
+browser.menus.onClicked.addListener(async (info, tab) => {
+  if (info.menuItemId !== MENU_ID) return;
+  if (!tab || tab.incognito) return;
+  clearDwell();
+  injectContentScript(tab.id);
+});
+
 console.log("[panopticon] background script loaded");
 connect();
 snapshotCurrent().catch((e) => console.error("[panopticon] snapshot failed", e));
+
+browser.menus.create({
+  id: MENU_ID,
+  title: "Extract page content for Panopticon",
+  contexts: ["page"],
+});

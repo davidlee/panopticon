@@ -153,6 +153,24 @@ def test_idle_state_no_url_passes() -> None:
     assert fields["state"] == "idle"
 
 
+def test_content_extracted_allowed() -> None:
+    event, ts, fields = validate.validate_and_redact(
+        {
+            "event": "browser_content_extracted",
+            "ts": "t",
+            "url": "https://example.com/post",
+            "domain": "example.com",
+            "title": "A Post",
+            "textContent": "The full article text.",
+            "contentHtml": "<p>The full article text.</p>",
+            "length": 24,
+        }
+    )
+    assert event == "browser_content_extracted"
+    assert fields["url"] == "https://example.com/post"
+    assert fields["textContent"] == "The full article text."
+
+
 def test_uppercase_scheme_dropped() -> None:
     with pytest.raises(validate.ValidationError):
         validate.validate_and_redact(

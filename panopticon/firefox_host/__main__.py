@@ -62,7 +62,7 @@ def run_loop(
     instead of the raw JSONL tier (their payloads are too large for the
     per-day raw files and serve a different consumer).
     """
-    ct_root = content_dir()
+    ct_root = content_dir(root=store.root)
 
     while True:
         try:

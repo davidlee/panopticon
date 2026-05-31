@@ -222,7 +222,7 @@ def test_run_loop_routes_content_extracted_to_content_store(tmp_path: Path) -> N
         assert len(raw_files) == 0
 
     # Content store should have the article.
-    ct_root = content_dir()
+    ct_root = content_dir(root=tmp_path)
     assert (ct_root / "articles.jsonl").exists()
     cstore = ContentStore(root=ct_root, domain="example.com")
     articles = cstore.list_articles()
@@ -246,7 +246,7 @@ def test_run_loop_skips_empty_content_extracted(tmp_path: Path) -> None:
     with RawStore(source="firefox", root=tmp_path) as store:
         run_loop(stdin, store)
 
-    ct_root = content_dir()
+    ct_root = content_dir(root=tmp_path)
     cstore = ContentStore(root=ct_root, domain="example.com")
     articles = cstore.list_articles()
     assert not any(a["url"] == "https://example.com/empty" for a in articles)
@@ -265,7 +265,7 @@ def test_run_loop_skips_content_extracted_error(tmp_path: Path) -> None:
     with RawStore(source="firefox", root=tmp_path) as store:
         run_loop(stdin, store)
 
-    ct_root = content_dir()
+    ct_root = content_dir(root=tmp_path)
     cstore = ContentStore(root=ct_root, domain="example.com")
     articles = cstore.list_articles()
     assert not any(a["url"] == "https://example.com/fail" for a in articles)

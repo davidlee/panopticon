@@ -28,3 +28,9 @@ web-ext-artifacts/
 .amo-upload-uuid
 *.amo-upload-uuid
 7a904468e18246b786c7-*.zip
+.doctrine/state/
+.doctrine/slice/*/phases
+.doctrine/slice/*/handover.md
+.doctrine/memory/index/*
+.doctrine/memory/embeddings/*
+.doctrine/memory/state/*

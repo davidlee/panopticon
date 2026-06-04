@@ -3,6 +3,8 @@
 ext := "firefox-extension"
 zip := "panopticon.zip"
 
+check: lint test
+
 # List recipes.
 default:
     @just --list

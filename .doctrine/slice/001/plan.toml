@@ -1,0 +1,93 @@
+# Implementation plan for SL-001 — the authored, durable phase plan.
+#
+# This is the single source of each phase's objective, criteria, verification,
+# and links. Runtime status lives separately under .doctrine/state/ (phase
+# tracking) — never record progress here. Hand-edit freely: the tool reads this
+# file but does not rewrite it.
+schema  = "doctrine.plan.overview"
+version = 1
+slice   = "SL-001"
+
+[specs]                          # empty in v1 — no spec/requirement registry yet
+primary       = []
+collaborators = []
+
+[requirements]
+targets      = []
+dependencies = []
+
+[[phase]]
+id        = "PHASE-01"
+name      = "pure core — segment.py"
+objective = """
+The pure, I/O-free heart of the producer: slug derivation, the hook's exact \
+field escaping, JSON-line assembly, candidate-log parsing, and (repo, sha) \
+dedup extraction. No git, no disk. Proven against a byte-for-byte golden line \
+captured from the real hook."""
+entrance_criteria = [
+  { id = "EN-1", text = "design.md decisions locked (codex review folded)" },
+  { id = "EN-2", text = "golden hook line captured for the escaping fixture" },
+]
+exit_criteria = [
+  { id = "EX-1", text = "segment.py exposes slug_for, esc, segment_line, parse_candidates, shas_in_segment — all pure (no os/subprocess/open imports)" },
+  { id = "EX-2", text = "segment_line output byte-matches the captured hook golden line (quote, backslash, tab cases)" },
+  { id = "EX-3", text = "shas_in_segment keys on (repo, sha): a shared short-sha prefix across two repos does not collide" },
+  { id = "EX-4", text = "slug_for covers trailing-slash, .git-strip, and empty-remote→basename" },
+]
+verification = [
+  { id = "VT-1", expects = "uv run pytest tests/test_git_segment.py green; golden byte-match asserted" },
+  { id = "VT-2", expects = "uv run ruff check . clean" },
+]
+specs        = []
+requirements = []
+
+[[phase]]
+id        = "PHASE-02"
+name      = "impure shell — poller.py + __main__.py"
+objective = """
+The thin imperative shell: repo discovery via git rev-parse (worktree/bare \
+aware), the per-repo two-pass git reads (enumerate --branches candidates, then \
+mirror the hook's per-commit field commands for new shas only), the flock \
+overlap guard, atomic O_APPEND writes, poll() orchestration, and the \
+panopticon-git CLI. Proven by a DIFFERENTIAL test that runs the real hook \
+beside the poller on the same temp repos."""
+entrance_criteria = [
+  { id = "EN-1", text = "PHASE-01 complete — pure core green" },
+]
+exit_criteria = [
+  { id = "EX-1", text = "discover_repos uses git -C <child> rev-parse --show-toplevel; skips bare + non-repos; handles .git-as-file worktrees" },
+  { id = "EX-2", text = "poll() writes one line per new commit to segments/git-<day>.jsonl; files_changed via the hook's diff-tree command; traversal is --branches (not HEAD, not --all)" },
+  { id = "EX-3", text = "dedup: a second poll is a no-op; a hook-preseeded sha is not re-emitted" },
+  { id = "EX-4", text = "flock on git-poller.lock makes a concurrent poll a no-op exit 0" },
+  { id = "EX-5", text = "differential test: real hook and poller emit byte-identical lines across root/normal/merge/empty/no-remote/trailing-slash-remote commit shapes" },
+  { id = "EX-6", text = "a commit on a non-checked-out local branch IS emitted" },
+]
+verification = [
+  { id = "VT-1", expects = "uv run pytest tests/test_git_poller.py green incl. the differential hook-vs-poller battery" },
+  { id = "VT-2", expects = "uv run ruff check . clean" },
+]
+specs        = []
+requirements = []
+
+[[phase]]
+id        = "PHASE-03"
+name      = "ops wiring — entry point, systemd, docs"
+objective = """
+Make it deployable: the panopticon-git [project.scripts] entry point, the \
+git-poller systemd oneshot service + 5-min timer (modelled on segmentizer), \
+and a README/AGENTS note recording the git freshness exception and the \
+hook-coexistence transition. No new runtime logic."""
+entrance_criteria = [
+  { id = "EN-1", text = "PHASE-02 complete — poller green end-to-end" },
+]
+exit_criteria = [
+  { id = "EX-1", text = "pyproject [project.scripts] panopticon-git wired; uv run panopticon-git --help works" },
+  { id = "EX-2", text = "systemd/git-poller.service (oneshot) + git-poller.timer (OnCalendar=*:0/5, Persistent=true) added, matching segmentizer style" },
+  { id = "EX-3", text = "README/AGENTS note the producer, the segments/ freshness exception, and the ISSUE-006 step-2 hook-retirement follow-up" },
+]
+verification = [
+  { id = "VT-1", expects = "uv run panopticon-git --help exits 0; uv run panopticon-git --dev-root <tmp> --state-dir <tmp> runs clean on a temp repo" },
+  { id = "VT-2", expects = "just lint + just test green (full suite, existing producers unaffected)" },
+]
+specs        = []
+requirements = []

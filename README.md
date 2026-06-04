@@ -46,6 +46,7 @@ leaves the machine.
 | `panopticon-sway` | Sway IPC watcher daemon. Tracks window focus, titles, workspaces. Reconnects with exponential backoff. |
 | `panopticon-firefox-host` | Native messaging host for the Firefox WebExtension. Receives browser attention events, re-validates and writes JSONL. Routes content extraction to the content store. |
 | `panopticon-segmentize` | Nightly batch. Derives `focus_segment` and `browser_tab_segment` events, computes daily histograms, enforces retention. |
+| `panopticon-git` | Host-side git-commit poller (5-min timer). Scans `~/dev/*`, appends one segment per new commit straight to `segments/git-YYYY-MM-DD.jsonl`. Byte-compatible with the SATAN `post-commit` hook, but env-agnostic so it also captures commits made inside bwrap jails (where the hook never fires). |
 
 The Firefox WebExtension lives in `firefox-extension/`. See its
 [README](firefox-extension/README.md) for install instructions.
@@ -61,7 +62,8 @@ Planned producers: ghostty/zsh shell hook, emacs, idle/lock watcher.
 │   └── firefox-YYYY-MM-DD.jsonl      7-day TTL (only after segmented)
 ├── segments/
 │   ├── focus-YYYY-MM-DD.jsonl        90-day TTL
-│   └── browser-YYYY-MM-DD.jsonl      90-day TTL
+│   ├── browser-YYYY-MM-DD.jsonl      90-day TTL
+│   └── git-YYYY-MM-DD.jsonl          90-day TTL (written direct, see below)
 ├── histograms/
 │   └── daily-YYYY-MM-DD.json         kept forever
 ├── current/
@@ -79,6 +81,17 @@ files accumulate indefinitely. Retention is tracked as follow-up work.
 Writes use POSIX `O_APPEND` — line-atomic up to `PIPE_BUF` (4 KiB on
 Linux), so concurrent producers need no coordination. Retention is
 source-aware: raw files are deleted only after matching segments exist.
+
+**Git is the freshness exception.** `panopticon-git` writes directly to
+`segments/` (not through `raw/ → segmentize`) so commits surface within a
+poll interval rather than next-day. Its line is a flat, hook-compatible
+object — `{repo, slug, remote, sha, subject, author, files_changed,
+start_ts, end_ts}` — not a schema-v1 `Event`. Dedup is stateless: each
+poll re-enumerates `git log --branches --since=7.days` and skips any
+`(repo, sha)` already present in the day-file, so the segment files are
+their own dedup state. During the transition the SATAN `post-commit` hook
+may co-write the same sha; the `(repo, sha)` dedup absorbs it. Retiring
+that hook is tracked in `.emacs.d` ISSUE-006 (step 2).
 
 ## Event schema
 

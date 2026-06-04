@@ -11,11 +11,11 @@ default:
 
 # Run the test suite.
 test:
-    uv run pytest -q
+    uv run --extra dev pytest -q
 
 # Lint.
 lint:
-    uv run ruff check .
+    uv run --extra dev ruff check .
 
 # Package the Firefox extension into panopticon.zip for upload (AMO) / signing.
 # manifest.json must sit at the archive root, so we zip from inside the

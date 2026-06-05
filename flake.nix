@@ -31,7 +31,11 @@
         src = ./.;
         build-system = with pkgs.python3Packages; [hatchling];
         dependencies = with pkgs.python3Packages; [i3ipc lxml markdownify trafilatura];
-        nativeCheckInputs = with pkgs.python3Packages; [pytestCheckHook pytest-asyncio];
+        # git: the git-poller suite (tests/test_git_poller.py) shells out to a
+        # real git binary — the sandbox has none unless we add it here.
+        nativeCheckInputs =
+          (with pkgs.python3Packages; [pytestCheckHook pytest-asyncio])
+          ++ [pkgs.git];
         meta.mainProgram = "panopticon-sway";
       };
 

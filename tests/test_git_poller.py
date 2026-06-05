@@ -38,6 +38,13 @@ def make_repo(path: Path, remote: str | None = None) -> Path:
     _run(["git", "init", "-q"], path)
     _run(["git", "config", "user.name", "Dev Tester"], path)
     _run(["git", "config", "user.email", "dev@test.co"], path)
+    # Disable the host's global post-commit hook for test commits. With a global
+    # core.hooksPath set, satan-git-post-commit fires on every `git commit` in
+    # this suite and writes the tmp-repo's commit into the developer's REAL
+    # ~/.local/state/behaviour feed. A repo-local core.hooksPath overrides the
+    # global one; the differential tests exec the hook script directly, so they
+    # are unaffected.
+    _run(["git", "config", "core.hooksPath", "/dev/null"], path)
     if remote is not None:
         _run(["git", "remote", "add", "origin", remote], path)
     return path

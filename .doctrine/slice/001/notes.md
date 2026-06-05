@@ -46,8 +46,20 @@ disposable phase sheet (`.doctrine/state/.../phase-NN.md`) that must survive
 - **`.emacs.d` ISSUE-006 step 2** (different repo): retire/demote
   `satan-git-post-commit` to end the double-write; reconcile its CAVEAT docs.
   Until then both writers may emit a sha — dedup absorbs it.
-- **Deploy**: enable the units —
-  `systemctl --user enable --now git-poller.timer` (after installing the unit
-  files to `~/.config/systemd/user/`).
+  **DO NOT blindly retire — coverage is not equal.** The poller scans `~/dev/*`
+  only; the global hook fires on commits *anywhere* (`~`, `~/notes`,
+  `~/.emacs.d` are all live in the feed and outside `~/dev`). Retiring the hook
+  without first widening the poller's roots would blind the feed to every
+  out-of-tree repo. Options: (a) keep the hook solely for out-of-`~/dev` repos
+  and let the poller own `~/dev`; or (b) make the poller's roots configurable
+  (multi-root) and retire the hook only once parity is proven. No formal
+  ISSUE-006 artifact exists in satan — this note + audit.md are the record.
+  Corollary already shipped here: tests must neutralise the host hook
+  (`make_repo` sets repo-local `core.hooksPath=/dev/null`, `89d43f0`), else
+  every `git commit` in the suite pollutes the real feed.
+- **Deploy** — DONE: live via home-manager
+  (`~/flakes/modules/home/nixos/behaviour.nix`), oneshot + 5-min timer,
+  absolute store-path ExecStart. Verified running. The in-repo `systemd/`
+  unit files were dead and have been removed (`154241f`).
 - **Build gate fix** (done here, note for context): `just test`/`just lint` now
   pass `--extra dev`; previously the async `test_sway_runner` suite couldn't run.

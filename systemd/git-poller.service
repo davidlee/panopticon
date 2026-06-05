@@ -1,6 +1,0 @@
-[Unit]
-Description=panopticon — host-side git-commit poller (SATAN git sensor)
-
-[Service]
-Type=oneshot
-ExecStart=panopticon-git

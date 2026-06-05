@@ -102,8 +102,11 @@ def enumerate_candidates(repo: Path, since: str) -> list[Candidate]:
 def commit_fields(repo: Path, full_sha: str) -> tuple[str, str]:
     """Return ``(author, subject)`` via one ``git log -1`` (NUL-split).
 
-    Subject (``%s``) is single-line, so it is safely taken as the tail after the
-    NUL separator.
+    The hook reads ``%an`` and ``%s`` in two separate calls; this folds them into
+    one. Safe because of two invariants git guarantees: ``%an`` (a single header
+    line) can contain no NUL — NUL is git's own field separator — so the first
+    ``\\x00`` unambiguously ends the author; and ``%s`` is single-line, so the
+    remainder is the whole subject.
     """
     out = _git_ok(repo, "log", "-1", "--pretty=format:%an%x00%s", full_sha) or ""
     author, _, subject = out.partition("\x00")

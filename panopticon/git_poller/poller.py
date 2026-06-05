@@ -45,6 +45,10 @@ def _git_ok(repo: Path, *args: str) -> str | None:
     """Run a git command; return stripped stdout, or ``None`` on nonzero exit."""
     res = _git(repo, *args)
     if res.returncode != 0:
+        log.debug(
+            "git %s in %s exited %d: %s",
+            " ".join(args), repo, res.returncode, res.stderr.strip(),
+        )
         return None
     return res.stdout.strip()
 
@@ -70,7 +74,10 @@ def discover_repos(dev_root: Path) -> list[Path]:
         out = res.stdout.split()
         if len(out) != 2 or out[1] != "false":
             continue  # bare repo or unexpected output → skip
-        repos.append(Path(out[0]))
+        toplevel = Path(out[0])
+        if toplevel.resolve() != child.resolve():
+            continue  # toplevel climbed to an ancestor repo — child is not one
+        repos.append(toplevel)
     return repos
 
 
@@ -131,7 +138,10 @@ def _load_day_shas(seg_path: Path, repo: str) -> set[str]:
 
 def _poll_unlocked(dev_root: Path, state_root: Path, since: str) -> int:
     segments = state_root / "segments"
-    seen_by_path: dict[Path, set[str]] = {}
+    # Cache key is (day-file, repo): two repos sharing a day-file each carry
+    # their own (repo, sha) set, so the second repo loads its own on-disk shas
+    # rather than inheriting the first's — and each (repo, day) is read once.
+    seen_by_key: dict[tuple[Path, str], set[str]] = {}
     emitted = 0
 
     for repo in discover_repos(dev_root):
@@ -140,7 +150,10 @@ def _poll_unlocked(dev_root: Path, state_root: Path, since: str) -> int:
         slug = slug_for(remote, repo_str)
         for cand in enumerate_candidates(repo, since):
             seg_path = segments / f"git-{cand.day}.jsonl"
-            seen = seen_by_path.setdefault(seg_path, _load_day_shas(seg_path, repo_str))
+            key = (seg_path, repo_str)
+            if key not in seen_by_key:
+                seen_by_key[key] = _load_day_shas(seg_path, repo_str)
+            seen = seen_by_key[key]
             if cand.short in seen:
                 continue
             author, subject = commit_fields(repo, cand.full)

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import fcntl
 import subprocess
+from collections import Counter
 from pathlib import Path
 
 import pytest
@@ -61,12 +62,18 @@ def run_hook(repo: Path, hook_state: Path) -> None:
     subprocess.run(["sh", str(HOOK)], cwd=repo, env=env, check=True)
 
 
-def seg_lines(state: Path) -> set[str]:
+def seg_lines(state: Path) -> Counter[str]:
+    """Multiset of segment lines on disk.
+
+    A ``Counter`` (not a ``set``) so the central failure mode of this slice —
+    a line emitted *twice* — is observable: ``==`` then compares multiplicity,
+    not mere membership.
+    """
     d = state / "segments"
-    out: set[str] = set()
+    out: Counter[str] = Counter()
     if d.is_dir():
         for f in d.glob("git-*.jsonl"):
-            out |= {ln for ln in f.read_text().splitlines() if ln.strip()}
+            out.update(ln for ln in f.read_text().splitlines() if ln.strip())
     return out
 
 
@@ -142,7 +149,41 @@ def test_poll_skips_preseeded_sha(tmp_path: Path) -> None:
     )
 
     assert poll(dev, state, since="50.years") == 0  # sha already present
-    assert seg_lines(state) == {ln for ln in seg.read_text().splitlines() if ln}
+    assert seg_lines(state) == Counter(
+        ln for ln in seg.read_text().splitlines() if ln.strip()
+    )
+
+
+def test_poll_two_repos_same_day_dedup_is_stable(tmp_path: Path) -> None:
+    """Two repos committing on the same day share one ``git-<day>.jsonl``. The
+    dedup cache must discriminate by ``(file, repo)`` — keying on the file alone
+    lets the second repo inherit the first's sha-set, never load its own, and
+    re-emit its commit on every subsequent poll. Steady state must be a no-op.
+    """
+    dev, state = tmp_path / "dev", tmp_path / "state"
+    dev.mkdir()
+    alpha = make_repo(dev / "alpha")
+    bravo = make_repo(dev / "bravo")
+    commit(alpha, "a1", write={"a.txt": "x"})
+    commit(bravo, "b1", write={"b.txt": "y"})
+
+    assert poll(dev, state, since="50.years") == 2
+    first = seg_lines(state)
+    assert sum(first.values()) == 2  # no line emitted twice on the first pass
+
+    assert poll(dev, state, since="50.years") == 0  # both shas now on disk
+    assert poll(dev, state, since="50.years") == 0  # …and stays a no-op
+    assert seg_lines(state) == first  # multiset unchanged — no duplicate growth
+
+
+def test_discover_skips_child_of_ancestor_repo(tmp_path: Path) -> None:
+    """A plain dir whose *ancestor* is a repo must not be reported: ``git
+    rev-parse --show-toplevel`` climbs upward and would otherwise enrol the
+    ancestor (the dotfiles-in-``~`` case), enumerating foreign commits.
+    """
+    dev = make_repo(tmp_path / "dev")  # dev_root itself is a git repo
+    (dev / "plain").mkdir()  # plain dir → toplevel resolves up to dev
+    assert discover_repos(dev) == []
 
 
 def test_poll_emits_commit_on_non_checked_out_branch(tmp_path: Path) -> None:
@@ -173,7 +214,7 @@ def test_poll_is_noop_when_lock_held(tmp_path: Path) -> None:
     fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
     try:
         assert poll(dev, state, since="50.years") == 0
-        assert seg_lines(state) == set()
+        assert seg_lines(state) == Counter()
     finally:
         fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
         lock.close()

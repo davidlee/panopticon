@@ -36,16 +36,16 @@ against `design.md` + `plan.toml`, plus a self-review of the diff.
 
 ### PHASE-03 (ops)
 - EX-1 entry point — ✅ `panopticon-git --help` works.
-- EX-2 systemd oneshot + 5-min timer — ⚠️ **unit files authored, not deployed.**
-  `systemd/git-poller.{service,timer}` exist and are well-formed, but are NOT
-  installed to `~/.config/systemd/user/`, NOT enabled, NOT active — the poller
-  runs only on manual `panopticon-git` invocation. Two gaps before it can run on
-  a timer: (1) install + `systemctl --user enable --now git-poller.timer`
-  (manual, per notes "Deploy"); (2) `ExecStart=panopticon-git` is a bare name —
-  a `--user` service has a thin PATH and the nixos entry-point location is
-  non-obvious, so it likely needs an absolute path or a PATH symlink or it fails
-  `203/EXEC`. Never exercised under systemd. **EX-2 is satisfied only as
-  "authored", not as "service stood up".**
+- EX-2 systemd oneshot + 5-min timer — ✅ **deployed.** The in-repo
+  `systemd/git-poller.{service,timer}` were never the live units (uninstalled);
+  the service is now defined in home-manager at
+  `~/flakes/modules/home/nixos/behaviour.nix` (mirroring `panopticon-segmentize`)
+  — `Type=oneshot`, absolute store-path `ExecStart=${panopticon}/bin/panopticon-git`
+  (the bare-name PATH risk is moot), `OnBootSec=2min` + `OnUnitActiveSec=5min` +
+  `Persistent`. Verified live: `panopticon-git.service` ran `status=0/SUCCESS`,
+  `TriggeredBy: panopticon-git.timer`, timer armed (next fire +5min). The
+  redundant in-repo `systemd/git-poller.*` files are now dead — candidate for
+  deletion.
 - EX-3 README producer + freshness-exception + ISSUE-006 follow-up note — ✅.
 - VT-1 `--help` + temp-repo run — ✅ smoke: 1 emitted, rerun dedups to 0.
 - VT-2 `just test`/`just lint` — ✅ 244 passed / clean (gate repaired with
@@ -108,6 +108,27 @@ coverage. Green gate, broken objective. Findings + dispositions:
   CI ever lands.
 
 Post-fix gate: 246 passed, ruff clean.
+
+### Deploy-verification finding — test suite polluted the production feed
+
+Surfaced while smoke-testing the live timer: the first real poll's feed held
+rows with `repo=/tmp/.../pytest-.../dev/proj`. Root cause was **not** the poller
+— the host installs `satan-git-post-commit` via a global `core.hooksPath`, so
+every `git commit` the suite makes in a tmp repo fired the hook with no
+`SATAN_BEHAVIOUR_DIR` override and wrote tmp-repo rows into the developer's real
+`~/.local/state/behaviour/segments/git-<day>.jsonl`. ~12 rows per run,
+compounding across every `just check` — 951 junk rows had accumulated across 4
+day-files (29 May–5 Jun).
+
+- **Fix** (`89d43f0`): `make_repo` sets a repo-local `core.hooksPath=/dev/null`
+  (local overrides global); the differential tests exec the hook directly so
+  they are unaffected. Verified: a full run now adds 0 rows to the real feed.
+- **Data cleanup**: the 951 `/tmp` rows were stripped from the live feed (folder
+  backed up, filtered on `"repo":"/tmp/`, verified no `/tmp` rows + dedup clean +
+  all survivors legit `~/dev` / `~` / `~/notes` / `~/.emacs.d`, backup removed).
+- **Lesson**: any test that runs real `git commit` on a host with a global hook
+  writes to real state by default. The honest-real-git test stance (no mocks) is
+  good, but it must neutralise host hooks — now baked into `make_repo`.
 
 ## Open / follow-up
 

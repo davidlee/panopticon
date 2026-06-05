@@ -16,11 +16,17 @@ against `design.md` + `plan.toml`, plus a self-review of the diff.
 
 ### PHASE-02 (impure shell)
 - EX-1 discovery via `rev-parse`, bare/non-repo skipped, `.git`-as-file ok — ✅
-  `test_discover_*`.
+  `test_discover_*`. ⚠️ Originally trusted `--show-toplevel` from a non-repo
+  child, which climbs to an ancestor repo (the dotfiles-in-`~` case); guarded
+  post-review (`toplevel.resolve() == child.resolve()`) — see "Code review round".
 - EX-2 one line/commit, hook's `diff-tree` files_changed, `--branches` — ✅
   `test_poll_emits_one_line_per_commit` + differential.
-- EX-3 dedup (2nd poll no-op; hook-preseeded sha skipped) — ✅
-  `test_poll_second_run_is_noop`, `test_poll_skips_preseeded_sha`.
+- EX-3 dedup (2nd poll no-op; hook-preseeded sha skipped) — ⚠️ **single-repo
+  only**. The pure `(repo, sha)` key was correct, but the shell cache discarded
+  the `repo` dimension, so multi-repo same-day polling re-emitted the non-first
+  repo's commits on every poll — unbounded duplicate growth, the inverse of the
+  objective. The two passing tests were both single-repo and never exercised the
+  broken path. Found in code review, fixed — see "Code review round" below.
 - EX-4 flock no-op when held — ✅ `test_poll_is_noop_when_lock_held`.
 - EX-5 differential byte-identical across shapes — ✅ 3 `requires_hook` tests pass
   unskipped on this host (root/normal/merge/empty/no-remote/trailing-slash).
@@ -30,7 +36,16 @@ against `design.md` + `plan.toml`, plus a self-review of the diff.
 
 ### PHASE-03 (ops)
 - EX-1 entry point — ✅ `panopticon-git --help` works.
-- EX-2 systemd oneshot + 5-min timer — ✅ `systemd/git-poller.{service,timer}`.
+- EX-2 systemd oneshot + 5-min timer — ⚠️ **unit files authored, not deployed.**
+  `systemd/git-poller.{service,timer}` exist and are well-formed, but are NOT
+  installed to `~/.config/systemd/user/`, NOT enabled, NOT active — the poller
+  runs only on manual `panopticon-git` invocation. Two gaps before it can run on
+  a timer: (1) install + `systemctl --user enable --now git-poller.timer`
+  (manual, per notes "Deploy"); (2) `ExecStart=panopticon-git` is a bare name —
+  a `--user` service has a thin PATH and the nixos entry-point location is
+  non-obvious, so it likely needs an absolute path or a PATH symlink or it fails
+  `203/EXEC`. Never exercised under systemd. **EX-2 is satisfied only as
+  "authored", not as "service stood up".**
 - EX-3 README producer + freshness-exception + ISSUE-006 follow-up note — ✅.
 - VT-1 `--help` + temp-repo run — ✅ smoke: 1 emitted, rerun dedups to 0.
 - VT-2 `just test`/`just lint` — ✅ 244 passed / clean (gate repaired with
@@ -51,17 +66,55 @@ against `design.md` + `plan.toml`, plus a self-review of the diff.
 - **Subprocess cost**: `poll` runs 1 `git log` per repo + (2 calls × *new*
   commits). Dedup precedes the expensive calls, so steady-state cost ≈ one `git
   log` per repo per 5 min. Fine.
-- **Error handling**: `_git_ok` swallows nonzero → `None`; a transiently broken
-  repo yields no candidates that poll rather than aborting the whole run. Matches
-  the hook's best-effort `exit 0` ethos.
+- **Error handling**: `_git_ok` returns `None` on nonzero exit (now also
+  `log.debug`s repo + stderr — added post-review so a silently-missing repo is
+  diagnosable); a transiently broken repo yields no candidates that poll rather
+  than aborting the whole run. Matches the hook's best-effort `exit 0` ethos.
 - **Resource hygiene**: lock fd + segment fd both `close()`d in `finally`.
 - **No parallel implementation**: rides `state_dir()` and the `RawStore`
   O_APPEND idiom; the foreign git line legitimately bypasses `Event`/`RawStore`
   (different contract), which is why those are mirrored not imported.
 
+## Code review round (2026-06-05)
+
+A `/code-review` pass returned **revision-required**. The self-review above
+missed the headline bug because the test helper coerced segment lines to a `set`
+(destroying the multiplicity a dedup bug produces) and there was no multi-repo
+coverage. Green gate, broken objective. Findings + dispositions:
+
+- 🔴 **Dedup cache dropped `repo`** (`poller.py` `_poll_unlocked`). Cache keyed
+  on the day-file path alone, so the first repo to touch a shared `git-<day>`
+  populated the entry and later repos inherited its sha-set, never loading their
+  own → re-emit every poll. **Fixed**: key `(seg_path, repo_str)`, loaded once
+  per `(repo, day)` (folds in the per-candidate reload too). Red test first:
+  `test_poll_two_repos_same_day_dedup_is_stable`. Commit `808ea60`.
+- 🟠 **`seg_lines` was set-blind** — the test helper that made the 🔴 invisible.
+  **Fixed**: returns a `Counter`; duplicate emission now fails `==`. `808ea60`.
+- 🟠 **`discover_repos` ancestor-climb** — `--show-toplevel` from a non-repo
+  child resolves upward and enrolled a foreign ancestor repo. **Fixed**: require
+  `toplevel.resolve() == child.resolve()`; `test_discover_skips_child_of_ancestor_repo`.
+  `808ea60`.
+- 🟡 **`_git_ok` silent on failure** — **Fixed**: `log.debug` repo + stderr on
+  nonzero. `808ea60`.
+- 🟡 **`commit_fields` one-call divergence** — packs `%an%x00%s` where the hook
+  uses two calls. Correct (git guarantees `%an` has no NUL, `%s` single-line),
+  but the invariant was half-stated. **Disposition (b)**: kept the one-call,
+  named both invariants in the docstring. Commit `9a85651`.
+- 🟡 **Differential is host-conditional** — `test_differential_*` skip when the
+  real hook file is absent, so the strongest byte-parity proof runs only on
+  david's host; elsewhere only the golden line guards the contract. **Accepted,
+  WON'T FIX**: no CI and no second host, so vendoring the hook as a fixture would
+  add a stale duplicate source-of-truth for zero coverage gain today. Revisit if
+  CI ever lands.
+
+Post-fix gate: 246 passed, ruff clean.
+
 ## Open / follow-up
 
+- **EX-2 not done — stand up the service.** Unit files exist but are uninstalled
+  / disabled / inactive (see PHASE-03 EX-2). To actually run on the 5-min timer:
+  fix `ExecStart` to an absolute `panopticon-git` path (or symlink into the user
+  PATH), copy the units to `~/.config/systemd/user/`, then
+  `systemctl --user enable --now git-poller.timer`. Until then the poller never
+  fires unattended.
 - `.emacs.d` ISSUE-006 step 2 (hook retirement) — external repo, tracked in notes.
-- A full `/code-review` pass was not separately run; the differential + golden
-  tests + this self-review cover the correctness surface. Run `/code-review` on
-  the diff if a second pair of eyes is wanted before merge.

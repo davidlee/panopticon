@@ -7,6 +7,7 @@
     devshell.url = "github:numtide/devshell";
     pub.url = "github:davidlee/nix-config?dir=flakes/pub";
     llm-agents.url = "github:numtide/llm-agents.nix";
+    doctrine.url = "github:davidlee/doctrine";
   };
 
   outputs = {
@@ -16,6 +17,7 @@
     devshell,
     pub,
     llm-agents,
+    doctrine,
   }:
     flake-utils.lib.eachDefaultSystem (system: let
       pkgs = import nixpkgs {
@@ -39,6 +41,8 @@
         meta.mainProgram = "panopticon-sway";
       };
 
+      doctrine-pkg = doctrine.packages.${system}.default;
+
       # Project tools injected into each jail so agents can run the same
       # build/test/lint loop a human would.
       projectPkgs = with pkgs; [
@@ -46,6 +50,7 @@
         (python3.withPackages (ps: with ps; [i3ipc pytest lxml markdownify trafilatura]))
         ruff
         uv
+        doctrine-pkg
       ];
 
       agents = pub.lib.${system}.mkJailedAgents {inherit llm-agents;};

@@ -10,6 +10,7 @@ build/
 
 *.local.*
 
+
 # nix
 result
 result-*
@@ -34,3 +35,27 @@ web-ext-artifacts/
 .doctrine/memory/index/*
 .doctrine/memory/embeddings/*
 .doctrine/memory/state/*
+.doctrine/**/handover.md
+.doctrine/slice/*/inquisition.md
+.doctrine/memory/shipped/
+.doctrine/dispatch/
+.doctrine/skills/*
+
+# additionally ...
+.doctrine/agents/*
+.doctrine/templates/*
+.doctrine/hymns/*
+.doctrine/workflows/*
+.doctrine/dispatch-mechanics.md
+.doctrine/doctrine.toml.example
+.doctrine/glossary.md
+.claude/workflows/*
+.claude/agents/*
+.pi/skills
+.doctrine/mod.just
+.doctrine/model-band.md
+.doctrine/review-ledger.md
+.doctrine/routing-process.md
+.doctrine/rules/AGENTS.md
+.doctrine/using-doctrine.md
+.doctrine/boot-footer.md

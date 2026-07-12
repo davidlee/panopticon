@@ -1,0 +1,52 @@
+schema = "doctrine.spec.tech"
+version = 1
+
+id = 1
+slug = "desktop-watcher"
+title = "Compositor-neutral desktop watcher"
+status = "draft"
+kind = "tech"
+category = "watcher"
+c4_level = "container"
+tags = ["compositor", "sway", "niri", "desktop"]
+responsibilities = [
+  "Own the compositor-neutral desktop-attention model (WindowRef, DesktopState, DesktopObservation) that the rest of Panopticon consumes.",
+  "Own the shared runner: connect/reconnect, exponential backoff, logging, snapshot + current-state + normalized-event persistence, and lifecycle (connected/disconnected/reconnected) events.",
+  "Define the CompositorSession / CompositorClient contract adapters implement, exposing normalized observations only — never native IPC.",
+  "Encode normalized semantic desktop events (the schema `event` names) independent of any compositor implementation.",
+  "House the Sway adapter: i3ipc consumption, tree traversal, focused-leaf selection, ancestor workspace/output lookup, app_id XWayland fallback, native-event interpretation.",
+  "House the Niri adapter: direct JSON-socket connection + framing, local projection (windows/workspaces/focus/active-workspace-by-output), normalization to shared observations.",
+  "Select the active adapter by CLI flag or environment auto-detection (NIRI_SOCKET / SWAYSOCK).",
+  "Preserve the privacy policy: capture compositor metadata only — no keystrokes, clipboard, screenshots, or raw native IPC dumps.",
+]
+
+[[source]]
+language = "python"
+identifier = "panopticon.compositor"
+module = "panopticon.compositor"
+
+[[source]]
+language = "python"
+identifier = "panopticon.desktop_watcher"
+module = "panopticon.desktop_watcher"
+
+[[source]]
+language = "python"
+identifier = "panopticon.sway_watcher"
+module = "panopticon.sway_watcher"
+
+# category — OPEN domain vocabulary (a taxonomy that drifts by design). Add as:
+#   category = "cli"
+# c4_level — closed C4 set: context | container | component | code. Add as:
+#   c4_level = "container"
+# descends_from — the product capability (PRD-NNN) this spec realises; tech-only,
+#   single-valued, validated against the product specs. Add as:
+#   descends_from = "PRD-001"
+# parent — single decomposition parent (SPEC-NNN or PRD-NNN); subtype-aware, single-valued, the
+#   tree must stay acyclic. Add as:
+#   parent = "SPEC-002"
+# [[source]] — code anchors this spec governs (tech-only, repeatable). Add as:
+#   [[source]]
+#   language = "rust"
+#   identifier = "doctrine/cli"
+#   module = "doctrine::cli"   # optional

@@ -87,6 +87,19 @@ without re-running the recon. Decisions are locked in `spec-001.md` (D1–D7).
 
 ## Proposed slice sequence (dependency order — not yet cut)
 
+> **Superseded in part by `review-001.md` (adversarial review, 2026-07-13).**
+> Corrections to apply before cutting: (1) **fold schema/D1 into slice 1** — build
+> the neutral encoder emitting the *final* schema (`source:"desktop"`+producer+
+> `window_id`) from the start, so slice-2 fixtures land once instead of being
+> rewritten by slice 3; (2) the **runner snapshot model inverts pull→push** (H2
+> revised) — the adapter yields its own initial snapshot; slice 1 is a rearchitecture
+> of `process_session`, not a leak deletion; (3) **segment tier is not neutral** (H4
+> downgraded) — slice 3's segmentizer work includes the hardcoded `source:"sway"`,
+> the `sway_disconnected` event-name contract, and D8's `(producer,output,app_id,
+> workspace)` key; (4) **D5 is its own before/after-tested change** on a Sway
+> tree-projection; (5) migration slice keeps `sway` `_SOURCES`/retention entries on a
+> raw-retention-dated retirement (OQ-4). The list below is the pre-review shape.
+
 Revised from the brief's 7 given repo evidence (shared runner is thin; con_id is a
 non-issue in-repo; segments already neutral):
 
@@ -118,9 +131,17 @@ non-issue in-repo; segments already neutral):
   (unit rename), OQ-3 (pin niri-ipc shapes) OPEN — resolve at the noted slices.
 
 ## Next action for resuming agent
-1. Adversarial review of SPEC-001 (design skill rhythm — second agent or, with user
-   OK, codex/gpt-5.5). Then flip status draft→ (whatever the accepted state is).
-2. Cut slice family: `doctrine slice new` ×7 with `needs`/`after` edges per sequence
-   above, `descends_from`/`parent` → SPEC-001. Then design+plan SL-1 just-in-time.
-3. Consider whether a product spec (PRD) is warranted, or the brief suffices as the
-   "why". User chose "tech spec first" — product spec was skipped deliberately.
+1. Adversarial review of SPEC-001 — DONE (2026-07-13). See `review-001.md`. Findings
+   folded into spec-001.md: H1 confirmed + id-reuse reworded; H2 revised (pull→push);
+   H4 downgraded; D1 re-justified (single consumer → unify at storage); D3 failure
+   rules; D4 output-as-connector; D5 tree-projection + own test; D7 both-set/liveness;
+   new D8 (segment key), D9 (timestamp), D10 (diff events), D11 (window_id scope);
+   OQ-3 closed; OQ-4 (historical-data reaping) + OQ-5 (niri fixtures) added.
+2. **BLOCKING — OQ-1**: owner adding ro mountpoints for `~/flakes` HM module + SATAN
+   Emacs reader. When mounted, read them to resolve D2 scope (drop compat vs Sway-only
+   compat). Grep for `current/sway.json`, `con_id`, `sway.json`, the raw/current paths.
+3. Then flip status draft→accepted and cut the slice family: `doctrine slice new`
+   with `needs`/`after` edges per the REVISED sequence (schema folded into slice 1),
+   `descends_from`/`parent` → SPEC-001. Design+plan SL-1 just-in-time.
+4. Product spec (PRD): user chose "tech spec first" — deliberately skipped. `parent`/
+   `descends_from` on SPEC-001 still unset (no PRD).

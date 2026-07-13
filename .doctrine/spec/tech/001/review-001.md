@@ -106,11 +106,32 @@ Both A and C: the segment *pipeline* is neutral but the *data* is not.
 recorded risk. Plus author an explicit decision that `output` = DRM connector name
 for both producers (verify against live Niri). Reframes D4 + downgrades H4.
 
+## OQ-1 resolution (2026-07-13 — out-of-repo trees mounted)
+Inventory of every out-of-repo reader (`/workspace/{flakes,satan,.emacs.d}`, source
+only, tests/backups/runs excluded):
+- **`con_id`**: ZERO readers. No source keys on it; raw tier has no programmatic
+  reader (only a `tail -f` comment in behaviour.nix:9); SATAN carries the
+  current-window object verbatim. → dropped outright.
+- **`current/sway.json`**: four hard-coded readers, all verbatim-passthrough (no
+  field-name coupling, so internal `window_id` rename is safe):
+  1. `satan/satan/satan-tools-activity.el:111` — `activity_read` "current" tool.
+  2. `satan/satan/satan-memory-evidence.el:662` — evidence-window `current_window`
+     slice; + mtime staleness at :100/:132/:143-148.
+  3. `satan/satan/satan-sensor-alerts.el:120` — shell `head -1
+     ~/.local/state/behaviour/current/sway.json`.
+  4. `.emacs.d/lisp/dl-sleipnir-doctor.el:266` — health doctor mtime check.
+  → keep the `current/sway.json` side-write; drop once SATAN repointed to
+  `current/desktop.json` (cross-repo, tracked separately).
+- **Producer unit** (`flakes/modules/home/linux/behaviour.nix:21`): service
+  `panopticon-sway`, `ExecStart=${lib.getExe panopticon}` — mainProgram-driven, so
+  rename-safe under D7. (OQ-2 partly answered.)
+- **⚑F1 confirmed**: SATAN is the single consumer and wants compositor-agnostic
+  current-window + focus segments (it never distinguishes producer) → validates
+  "unify at the storage layer" (`source:"desktop"`), the D1 cut as authored.
+
 ## Recommended path
-- Resolve **OQ-1 now** (bounded read of the out-of-repo HM module + SATAN reader) —
-  it collapses both D2 and ⚑F1. If no reader: drop D2, and ⚑F1 leans to the simpler
-  sibling-source cut.
-- Decide ⚑F1 + ⚑F2, fold corrections 1–6, close OQ-3, reword H2/H4/H1-ids.
+- OQ-1 DONE (above). ⚑F1 → keep `source:"desktop"`; ⚑F2 → D8 (producer/output key).
+- Corrections 1–6 folded; OQ-3 closed; H2/H4/H1-ids reworded.
 - Re-frame D5: isolate the focus-fix as its own slice with a before/after test, OR
   state explicitly in D5 that the Sway adapter moves to a tree-projection model as
   the fix mechanism (removing the "incidental bug fix" framing — it is load-bearing:

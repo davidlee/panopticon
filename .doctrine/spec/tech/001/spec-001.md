@@ -110,10 +110,14 @@ preserving Sway behaviour and the existing privacy policy.
   rename blast radius: the three synthetic `source="sway"` event factories
   (runner.py:72/109/119 → events.py:194/199/203), logger `"panopticon.sway"` (:37),
   `AsyncSwayClient` (:49). Still true: retiring the dead `ipc.py` reconnect (D6).
-- **H3 — con_id has no in-repo consumer.** The segmentizer keys focus on
-  `(app_id, workspace)`; `con_id` is produced, emitted, and stored but never read
-  downstream in-repo. Out-of-repo consumers are unverified — hence the
-  conservative dual-emit in D2.
+- **H3 — con_id has NO consumer, in- or out-of-repo (confirmed via OQ-1).** The
+  segmentizer keys focus on `(app_id, workspace)`; `con_id` is produced, emitted, and
+  stored but never read. OQ-1 (2026-07-13, out-of-repo trees now mounted) confirms no
+  reader out-of-repo either: no source file keys on `con_id`; SATAN passes the
+  current-window object through verbatim (`satan-tools-activity.el:110-115`,
+  `satan-memory-evidence.el:132-148`); the raw tier (`raw/*.jsonl`) has no programmatic
+  out-of-repo reader at all. → `con_id` can be dropped outright; the dual-emit half of
+  D2 is retired.
 - **H4 — Segment *pipeline* is neutral; segment *data* is not (downgraded).** The
   original claim (segment tier fully neutral, migration touches only raw +
   `current/*.json`) is FALSE — the review found two segment-tier couplings: (a)
@@ -156,17 +160,22 @@ preserving Sway behaviour and the existing privacy policy.
   `desktop` entry (retention's `_source_from_raw_name` is already generic — no
   change); every `make_event("sway", …)` becomes producer-parameterized. Segment
   *record bodies* also change (H4) — see D8.
-- **D2 — Conservative compatibility (con_id + current/sway.json) — PENDING OQ-1.**
-  Out-of-repo readers of the raw/current tiers are unverified (H3). The owner is
-  adding read-only mountpoints so OQ-1 can be resolved directly (2026-07-13); D2's
-  scope is decided by that read, not assumed:
-  - If **no reader** exists → drop D2 entirely; the neutral encoder/store stay clean.
-  - If a reader exists → dual-emit `con_id` alongside `window_id` and side-write
-    `current/sway.json`, **confined to the Sway adapter — never the neutral core**,
-    with removal pinned to a dated retirement (not "once verified"). Subject to D11
-    (`con_id` for Niri has no coherent meaning; compat is Sway-only).
-  Until OQ-1 resolves, treat the neutral core as compat-free and gate any compat on
-  the finding.
+- **D2 — Compatibility: side-write `current/sway.json` only; drop con_id (resolved
+  by OQ-1).** OQ-1 (2026-07-13) inventoried the now-mounted out-of-repo trees and
+  split the original conservative measure cleanly:
+  - **con_id — DROPPED.** No reader anywhere (H3). No dual-emit; `con_id` is removed
+    from the raw tier, not carried.
+  - **`current/sway.json` — KEEP the side-write.** Four out-of-repo readers hard-code
+    the filename (`satan-tools-activity.el:111`, `satan-memory-evidence.el:662` +
+    mtime staleness at :100/:132, `satan-sensor-alerts.el:120` shell `head -1
+    ~/.local/state/behaviour/current/sway.json`, `.emacs.d/lisp/dl-sleipnir-doctor.el:266`).
+    Content is consumed verbatim, so the internal id-field rename to `window_id` is
+    harmless — but the *filename* and the `~/.local/state/behaviour/current/` path are
+    load-bearing. During migration, side-write `current/sway.json` beside
+    `current/desktop.json`. This is the only compat surface; it lives in the store
+    write path, not the neutral event encoder. Drop it once SATAN is updated to read
+    `current/desktop.json` across those four sites (a cross-repo change tracked
+    separately, not gating this spec).
 - **D3 — Niri via direct Python JSON socket.** No Rust sidecar. Connect
   `AF_UNIX/SOCK_STREAM` to `$NIRI_SOCKET`, send `"EventStream"`, assert the ack,
   read one `json.loads` per line. Projection: `windows_by_id`, `workspaces_by_id`,
@@ -251,21 +260,27 @@ preserving Sway behaviour and the existing privacy policy.
   are inputs to the projection, never emitted verbatim — this bounds event volume
   and keeps the two producers' emission semantics identical.
 - **D11 — `window_id` uniqueness is scoped, not global-in-time.** Both Sway
-  `con_id` and Niri ids are opaque and may recur across window lifetimes (H1). Any
-  consumer (incl. a surviving D2 compat reader) must treat `window_id` as unique
-  only within `(producer, window-lifetime)`, never as a stable cross-time key.
-  In-repo this is moot (H3); it constrains only the D2 compat contract if it survives
-  OQ-1.
+  `con_id` and Niri ids are opaque and may recur across window lifetimes (H1).
+  `window_id` is unique only within `(producer, window-lifetime)`, never a stable
+  cross-time key. Moot in practice (H3 confirms no consumer keys on it, and con_id is
+  dropped per D2/OQ-1) — recorded so no future consumer mistakes it for a durable id.
 
 ### Open questions
 
-- **OQ-1** — Which out-of-repo consumers (waybar? SATAN? scripts in `~/flakes`)
-  actually read `current/sway.json` or the `con_id` field? Gates D2's scope.
-  **Status: in progress** — owner adding read-only mountpoints (`~/flakes` HM module
-  + SATAN's Emacs reader) so this resolves directly rather than by assumption.
-- **OQ-2** — Do the in-repo `systemd/sway-watcher.service` unit and the out-of-repo
-  HM unit get renamed to `desktop-watcher`, or does `panopticon-sway` stay the
-  ExecStart during migration? Operational, resolve in the docs/migration slice.
+- **OQ-1** — CLOSED (2026-07-13, out-of-repo trees mounted at `/workspace/{flakes,satan,.emacs.d}`).
+  `con_id`: no reader anywhere → dropped. `current/sway.json`: four hard-coded readers
+  (SATAN activity tool, evidence-window assembly + staleness, sensor-alerts shell
+  path, sleipnir doctor) consume it verbatim → keep the side-write, drop once SATAN is
+  repointed. Folded into D2 + H3.
+- **OQ-2** — Do the units get renamed to `desktop-watcher`? Partly answered by OQ-1:
+  the producer unit `systemd.user.services.panopticon-sway`
+  (`flakes/modules/home/linux/behaviour.nix:21`) sets `ExecStart = ${lib.getExe
+  panopticon}` — driven by `nix meta.mainProgram`, so it is **rename-safe as long as
+  D7's mainProgram move holds**; the unit *name* is a cosmetic label. Sibling units
+  `panopticon-segmentize`/`panopticon-git` use explicit `/bin/…` paths (unchanged
+  binaries). Remaining decision (unit-name cosmetics) still deferred to the
+  docs/migration slice. NOTE: the live module path is `home/linux/`, not `home/nixos/`
+  as the recon notes first guessed.
 - **OQ-3** — CLOSED (adversarial review, 2026-07-13). niri-ipc v26.4.0 is the current
   latest; the crate is not semver-stable so the exact `=` pin is required.
   `Timestamp{secs,nanos}` and `WindowLayout` (geometry) are irrelevant to this

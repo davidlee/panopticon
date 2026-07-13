@@ -137,9 +137,13 @@ non-issue in-repo; segments already neutral):
    rules; D4 output-as-connector; D5 tree-projection + own test; D7 both-set/liveness;
    new D8 (segment key), D9 (timestamp), D10 (diff events), D11 (window_id scope);
    OQ-3 closed; OQ-4 (historical-data reaping) + OQ-5 (niri fixtures) added.
-2. **BLOCKING — OQ-1**: owner adding ro mountpoints for `~/flakes` HM module + SATAN
-   Emacs reader. When mounted, read them to resolve D2 scope (drop compat vs Sway-only
-   compat). Grep for `current/sway.json`, `con_id`, `sway.json`, the raw/current paths.
+2. OQ-1 — CLOSED (2026-07-13, trees mounted at `/workspace/{flakes,satan,.emacs.d}`).
+   con_id: no reader → dropped. current/sway.json: 4 verbatim readers → keep
+   side-write. Full reader inventory in `review-001.md § OQ-1 resolution`. D2/H3/OQ-2
+   updated in spec. Out-of-repo consumer paths (for future edits):
+   `satan/satan/satan-{tools-activity,memory-evidence,sensor-alerts}.el`,
+   `.emacs.d/lisp/dl-sleipnir-doctor.el`; producer unit
+   `flakes/modules/home/linux/behaviour.nix`.
 3. Then flip status draft→accepted and cut the slice family: `doctrine slice new`
    with `needs`/`after` edges per the REVISED sequence (schema folded into slice 1),
    `descends_from`/`parent` → SPEC-001. Design+plan SL-1 just-in-time.

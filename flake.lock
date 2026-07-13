@@ -184,11 +184,11 @@
         "rust-overlay": "rust-overlay"
       },
       "locked": {
-        "lastModified": 1783783353,
-        "narHash": "sha256-gynaNE88Rht9L9GiaNZzt9wINK1guL0YEcOOdFtq3tA=",
+        "lastModified": 1783851472,
+        "narHash": "sha256-1GbBR2s2WNGeH1dKFJKNNIMxdHC4Go+rOCbL5EWG4+Q=",
         "owner": "davidlee",
         "repo": "doctrine",
-        "rev": "d7bd70e261f76f5247428559dc163444f8501643",
+        "rev": "9e1b7a787c2020afad954fdacfdfc30688a40420",
         "type": "github"
       },
       "original": {

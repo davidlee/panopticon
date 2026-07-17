@@ -1,0 +1,34 @@
+id    = 1
+slug  = "sl-002-close-out-audit-conformance-vs-design-plan"
+title = "SL-002 close-out audit — conformance vs design + plan"
+# no status — a review's status is DERIVED from its findings (ADR-007 D-C8), so
+# it is never stored (the storage rule forbids derived data in authored files).
+
+[review]
+facet     = "reconciliation"     # scope|design|plan|phase-plan|implementation|code-review|reconciliation
+raiser    = "raiser"
+responder = "responder"
+
+[target]                   # the outbound `reviews` edge (ADR-004): RV-NNN ──reviews──▶ <ref>
+ref   = "SL-002"
+
+[[finding]]
+id = "F-1"
+status = "verified"
+severity = "minor"
+title = "auto-detect uses SWAYSOCK env probe, not an IPC connect-attempt"
+detail = "compositor/detect.py::_sway_reachable resolves --compositor auto by testing SWAYSOCK env-var presence (detect.py:44-50), whereas design DD10 / plan PHASE-04 EX-2 word it as resolution 'by connect-attempt'. Intentional and honestly documented in-code as 'a stand-in for the SL-003 connect-validated probe'; the full connect-validated liveness resolution is scoped to SL-003. Recorded so SL-003 replaces the env probe with a real connect. Not close-gating."
+disposition = "tolerated — carried to SL-003"
+response = "Accepted as an intentional, in-code-documented seam. The SWAYSOCK env probe is sufficient while Sway is the only adapter; SL-003 (niri + full D7 both-set/liveness) replaces it with the connect-validated probe. Non-gating; tracked in audit.md and design DD10."
+
+[[finding]]
+id = "F-2"
+status = "verified"
+severity = "nit"
+title = "VH-1 nix run not executed in-jail — needs one-line host confirmation"
+detail = "PHASE-04 VH-1 asks a human/agent to confirm 'nix run' launches panopticon-desktop. No nix CLI in this bubblewrap jail, so it was verified by inspection instead: flake.nix:41 meta.mainProgram='panopticon-desktop' committed at HEAD, pyproject console script panopticon-desktop resolves, and 'uv run panopticon-desktop --help' works end-to-end. The mainProgram move is sound; a one-line 'nix run' confirmation on a nix host closes VH-1 fully."
+disposition = "verified-by-inspection — host confirmation outstanding"
+response = "mainProgram move + console-script + --help execution all confirm the entrypoint resolves; only the literal 'nix run' invocation is unrunnable in-jail. Carried as a one-line host checkpoint, not a defect. Non-gating."
+
+# Findings are append-only `[[finding]]` tables, added by `review raise` (PHASE-03).
+# Empty here at creation — a fresh review is Active, awaiting the raiser (D-C8).

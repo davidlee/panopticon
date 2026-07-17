@@ -1,22 +1,24 @@
-"""i3ipc-python adapter implementing :class:`AsyncSwayClient`.
+"""i3ipc-python adapter implementing :class:`CompositorClient` for Sway.
 
-The adapter is the only module that imports i3ipc; all other watcher
-modules deal in the abstract :class:`~panopticon.sway_watcher.runner.AsyncSession`
-/ :class:`~panopticon.sway_watcher.runner.AsyncSwayClient` protocols.
-Swap providers (e.g. wlroots, kde) by writing another adapter without
-touching the loop.
+The only module that imports i3ipc; every other compositor module deals
+in the neutral protocols. It bridges raw i3ipc events into
+:class:`~panopticon.compositor.sway.project.IpcEvent`\\ s and hands a
+:class:`~panopticon.compositor.sway.session.SwaySession` (events +
+``get_tree``) to the runner. Swap compositors by writing another
+adapter without touching the loop.
 """
 
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
 
 import i3ipc.aio  # type: ignore[import-untyped]
 
 from panopticon.compositor.sway.project import IpcEvent
+from panopticon.compositor.sway.session import SwaySession
 
 SUBSCRIBE_EVENTS: tuple[str, ...] = (
     "window",
@@ -29,27 +31,10 @@ SUBSCRIBE_EVENTS: tuple[str, ...] = (
 )
 
 
-class I3ipcSession:
-    """One live i3ipc connection wrapped as an :class:`AsyncSession`."""
-
-    def __init__(
-        self,
-        conn: i3ipc.aio.Connection,
-        event_iter_factory: Callable[[], AsyncIterator[IpcEvent]],
-    ) -> None:
-        self._conn = conn
-        self._event_iter_factory = event_iter_factory
-
-    def events(self) -> AsyncIterator[IpcEvent]:
-        return self._event_iter_factory()
-
-    async def get_tree(self) -> dict[str, Any]:
-        tree = await self._conn.get_tree()
-        return tree.ipc_data
-
-
 class I3ipcSwayClient:
-    """An :class:`AsyncSwayClient` backed by ``i3ipc.aio.Connection``."""
+    """A :class:`CompositorClient` backed by ``i3ipc.aio.Connection``."""
+
+    producer = "sway"
 
     def __init__(self, events: tuple[str, ...] = SUBSCRIBE_EVENTS) -> None:
         self._events = events
@@ -83,15 +68,22 @@ class I3ipcSwayClient:
 
         main_task = asyncio.create_task(main_loop())
 
-        async def iterate() -> AsyncIterator[IpcEvent]:
-            while True:
-                item = await queue.get()
-                if item is done_sentinel:
-                    return
-                yield item
+        def iterate() -> AsyncIterator[IpcEvent]:
+            async def gen() -> AsyncIterator[IpcEvent]:
+                while True:
+                    item = await queue.get()
+                    if item is done_sentinel:
+                        return
+                    yield item
+
+            return gen()
+
+        async def get_tree() -> dict[str, Any]:
+            tree = await conn.get_tree()
+            return tree.ipc_data
 
         try:
-            yield I3ipcSession(conn, iterate)
+            yield SwaySession(iterate, get_tree)
         finally:
             if not main_task.done():
                 main_task.cancel()

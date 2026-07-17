@@ -1,8 +1,9 @@
-"""Entrypoint for ``panopticon-sway``.
+"""Entrypoint for ``panopticon-sway`` (interim wrapper).
 
-Wires :class:`~panopticon.sway_watcher._i3ipc.I3ipcSwayClient` into
-:func:`~panopticon.sway_watcher.runner.run_watcher`, installs signal
-handlers for graceful shutdown, and parses CLI args.
+Wires :class:`~panopticon.compositor.sway._i3ipc.I3ipcSwayClient` into
+the neutral :func:`~panopticon.compositor.runner.run_watcher`, installs
+signal handlers for graceful shutdown, and parses CLI args. Superseded
+by ``panopticon-desktop`` + a thin wrapper in PHASE-04 (SL-002 DD10).
 """
 
 from __future__ import annotations
@@ -14,8 +15,8 @@ import logging
 import signal
 from pathlib import Path
 
+from panopticon.compositor.runner import run_watcher
 from panopticon.store import RawStore
-from panopticon.sway_watcher.runner import run_watcher
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -55,7 +56,7 @@ def main(argv: list[str] | None = None) -> int:
 
     # Defer i3ipc import: parse_args tests don't need the IPC stack
     # loaded, and --help should work even on hosts without i3ipc.
-    from panopticon.sway_watcher._i3ipc import I3ipcSwayClient
+    from panopticon.compositor.sway._i3ipc import I3ipcSwayClient
 
     client = I3ipcSwayClient()
     store = RawStore(args.source, args.state_dir)

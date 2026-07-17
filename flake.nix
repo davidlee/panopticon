@@ -38,7 +38,7 @@
         nativeCheckInputs =
           (with pkgs.python3Packages; [pytestCheckHook pytest-asyncio])
           ++ [pkgs.git];
-        meta.mainProgram = "panopticon-sway";
+        meta.mainProgram = "panopticon-desktop";
       };
 
       doctrine-pkg = doctrine.packages.${system}.default;

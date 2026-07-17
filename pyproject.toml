@@ -18,6 +18,7 @@ dev = [
 ]
 
 [project.scripts]
+panopticon-desktop = "panopticon.desktop_watcher.__main__:main"
 panopticon-sway = "panopticon.sway_watcher.__main__:main"
 panopticon-segmentize = "panopticon.segmentizer.__main__:main"
 panopticon-firefox-host = "panopticon.firefox_host.__main__:main"

@@ -1,0 +1,42 @@
+memory_uid = "mem_019f6f84f6897ef38e99fb847cbef24b"
+memory_key = "mem.fact.panopticon.niri-live-sway-dead"
+schema_version = 1
+memory_type = "fact"
+status = "active"
+title = "Niri is live; the Sway watcher is dormant and the data is dead"
+summary = "User runs Niri now; the deployed Sway watcher produces nothing, so desktop-attention data is currently dead. SPEC-001's live-data value lands at SL-003 (Niri), not SL-002."
+created = "2026-07-17"
+updated = "2026-07-17"
+
+[scope]
+paths = []
+globs = []
+commands = []
+tags = ["panopticon", "spec-001", "niri", "migration"]
+workspace = "default"
+repo = "github.com/davidlee/panopticon"
+repo_id_kind = "remote"
+repo_id_confidence = "high"
+
+[git]
+anchor_kind = "checkout_state"
+commit = ""
+tree = "0e9db83a1c5565ee9efbe3600ee53940a266ac7a"
+ref_name = "refs/heads/main"
+checkout_state_id = "247f1c24a6000522a50f1c5ab6f2223bb10b04c7d00fa60592c8e5cb437646b6"
+base_commit = "58e82059f651d03489fd4e0d7115671fe937893a"
+verified_sha = ""
+normalizer = "forget.checkout.v1"
+
+[review]
+verification_state = "unverified"
+reviewed = ""
+review_by = ""
+
+[trust]
+trust_level = "medium"
+
+[ranking]
+severity = "none"
+weight = 0
+

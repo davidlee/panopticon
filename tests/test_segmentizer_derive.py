@@ -45,6 +45,27 @@ def reconn(t: str):
     return make_event("sway", "sway_reconnected", ts=t)
 
 
+# ---- desktop-schema helpers (source='desktop', producer + output) ----
+
+
+def d_snap(t: str, app: str, ws: str, *, producer="sway", output="DP-1"):
+    return make_event(
+        "desktop", "snapshot", ts=t,
+        producer=producer, output=output, app_id=app, workspace=ws,
+    )
+
+
+def d_focus(t: str, app: str, ws: str, *, producer="sway", output="DP-1"):
+    return make_event(
+        "desktop", "window_focus", ts=t,
+        producer=producer, output=output, app_id=app, workspace=ws,
+    )
+
+
+def comp_disc(t: str):
+    return make_event("desktop", "compositor_disconnected", ts=t, producer="sway")
+
+
 # ---- empty / boundary ----
 
 
@@ -139,6 +160,54 @@ def test_disconnect_closes_segment_and_pauses():
     assert len(segs) == 2
     assert segs[0].fields["end_ts"] == ts(2)
     assert segs[1].fields["start_ts"] == ts(3)
+
+
+def test_compositor_disconnected_also_closes_segment():
+    # F6 dual-name close: the neutral name closes just like the legacy one.
+    segs = list(derive_segments([
+        d_snap(ts(0), "firefox", "1"),
+        comp_disc(ts(2)),
+        d_snap(ts(3), "firefox", "1"),
+    ], source="desktop", close_at=ts(5)))
+    assert len(segs) == 2
+    assert segs[0].fields["end_ts"] == ts(2)
+    assert segs[1].fields["start_ts"] == ts(3)
+
+
+# ---- D8 key: producer + output ----
+
+
+def test_desktop_segment_carries_producer_and_output():
+    segs = list(derive_segments(
+        [d_snap(ts(0), "firefox", "1")], source="desktop", close_at=ts(5)
+    ))
+    assert len(segs) == 1
+    assert segs[0].source == "desktop"
+    assert segs[0].fields["producer"] == "sway"
+    assert segs[0].fields["output"] == "DP-1"
+    assert segs[0].fields["app_id"] == "firefox"
+
+
+def test_output_change_splits_segment_even_with_same_app_workspace():
+    # D8 anti-conflation: same (app_id, workspace) name on a different output
+    # is a distinct focus segment.
+    segs = list(derive_segments([
+        d_focus(ts(0), "firefox", "1", output="DP-1"),
+        d_focus(ts(2), "firefox", "1", output="HDMI-1"),
+    ], source="desktop", close_at=ts(5)))
+    assert len(segs) == 2
+    assert segs[0].fields["output"] == "DP-1"
+    assert segs[0].fields["end_ts"] == ts(2)
+    assert segs[1].fields["output"] == "HDMI-1"
+    assert segs[1].fields["start_ts"] == ts(2)
+
+
+def test_producer_change_splits_segment():
+    segs = list(derive_segments([
+        d_focus(ts(0), "firefox", "1", producer="sway"),
+        d_focus(ts(2), "firefox", "1", producer="niri"),
+    ], source="desktop", close_at=ts(5)))
+    assert [s.fields["producer"] for s in segs] == ["sway", "niri"]
 
 
 # ---- null focus ----

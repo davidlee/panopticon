@@ -33,7 +33,12 @@ log = logging.getLogger("panopticon.segmentizer")
 
 # Per-source pipeline: (raw filename prefix, segment filename prefix, derive fn).
 # Adding a producer is a one-line change here.
+# The desktop watcher (SL-002) emits source='desktop'; the legacy sway entry is
+# kept so historical raw/sway-*.jsonl in the retention window still derive
+# (source='sway' preserved). Both map to the 'focus' segment prefix — a same-day
+# collision would overwrite, but Sway is dormant so no new sway raws arise (R3).
 _SOURCES = (
+    ("desktop", "focus", derive_segments),
     ("sway", "focus", derive_segments),
     ("firefox", "browser", derive_browser_segments),
 )
@@ -69,7 +74,7 @@ def run(root: Path, *, today: date) -> None:
                 close_at = _next_day_midnight(day, events[-1].ts)
             else:
                 close_at = events[-1].ts
-            segs = list(derive(events, close_at=close_at))
+            segs = list(derive(events, source=raw_prefix, close_at=close_at))
             seg_path = root / "segments" / f"{seg_prefix}-{day_str}.jsonl"
             _atomic_write_text(
                 seg_path, "".join(s.to_json_line() + "\n" for s in segs)

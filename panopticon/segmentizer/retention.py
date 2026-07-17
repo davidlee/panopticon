@@ -9,9 +9,10 @@ Three tiers, three rules:
 - ``segments/`` keeps the last ``segment_days`` (default 90).
 - ``histograms/`` is retained forever and never touched here.
 
-The raw → segment mapping (``sway`` → ``focus``, ``firefox`` →
-``browser``) is duplicated in the segmentizer ``_SOURCES`` tuple; if
-sources are added there, mirror them in :data:`_SEGMENT_PREFIX_FOR_RAW`.
+The raw → segment mapping (``desktop`` → ``focus``, ``sway`` → ``focus``,
+``firefox`` → ``browser``) is duplicated in the segmentizer ``_SOURCES``
+tuple; if sources are added there, mirror them in
+:data:`_SEGMENT_PREFIX_FOR_RAW`.
 
 All operations are pure unlinks; segment/histogram producers handle
 their own atomic-rename writes.
@@ -24,6 +25,7 @@ from datetime import date
 from pathlib import Path
 
 _SEGMENT_PREFIX_FOR_RAW: dict[str, str] = {
+    "desktop": "focus",
     "sway": "focus",
     "firefox": "browser",
 }

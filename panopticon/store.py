@@ -31,18 +31,28 @@ def state_dir() -> Path:
 class RawStore:
     """Per-source per-day JSONL writer + atomic current-state snapshot."""
 
-    def __init__(self, source: str, root: Path | str | None = None) -> None:
+    def __init__(
+        self,
+        source: str,
+        root: Path | str | None = None,
+        *,
+        current_aliases: tuple[str, ...] = (),
+    ) -> None:
         self.source = source
         self.root = Path(root) if root else state_dir()
+        self.current_aliases = tuple(current_aliases)
         self._fd: int | None = None
         self._current_day: str | None = None
 
     def path_for(self, day: str) -> Path:
         return self.root / "raw" / f"{self.source}-{day}.jsonl"
 
+    def _current_path_for(self, name: str) -> Path:
+        return self.root / "current" / f"{name}.json"
+
     @property
     def current_path(self) -> Path:
-        return self.root / "current" / f"{self.source}.json"
+        return self._current_path_for(self.source)
 
     def write(self, event: Event) -> None:
         """Append ``event`` to the appropriate per-day file, rotating if needed."""
@@ -54,12 +64,20 @@ class RawStore:
         os.write(self._fd, line)
 
     def write_current(self, payload: dict[str, Any]) -> None:
-        """Atomically replace ``current/<source>.json`` with ``payload``.
+        """Atomically replace the current-state file(s) with ``payload``.
 
-        Consumers polling the current-state file never see a partial
-        write; the rename is atomic on the same filesystem.
+        Writes ``current/<source>.json`` plus one file per entry in
+        ``current_aliases`` (the DD7 compat side-write:
+        ``current/sway.json`` alongside ``current/desktop.json``), each
+        with the same payload. Consumers polling a current-state file
+        never see a partial write; the rename is atomic on the same
+        filesystem.
         """
-        target = self.current_path
+        for name in (self.source, *self.current_aliases):
+            self._write_current_file(name, payload)
+
+    def _write_current_file(self, name: str, payload: dict[str, Any]) -> None:
+        target = self._current_path_for(name)
         target.parent.mkdir(parents=True, exist_ok=True)
         tmp = target.with_name(f".{target.name}.{os.getpid()}.tmp")
         with open(tmp, "w", encoding="utf-8") as fh:

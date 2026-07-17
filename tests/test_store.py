@@ -68,6 +68,24 @@ def test_write_current_replaces_existing(tmp_path):
     assert json.loads(target.read_text()) == {"a": 2}
 
 
+def test_write_current_side_writes_aliases(tmp_path):
+    # DD7 compat: a source='desktop' store writes current/desktop.json AND
+    # current/sway.json with the same payload.
+    payload = {"window_id": 991, "app_id": "firefox", "workspace": "2:web"}
+    with RawStore("desktop", tmp_path, current_aliases=("sway",)) as store:
+        store.write_current(payload)
+    desktop = tmp_path / "current" / "desktop.json"
+    sway = tmp_path / "current" / "sway.json"
+    assert json.loads(desktop.read_text()) == payload
+    assert json.loads(sway.read_text()) == payload
+
+
+def test_desktop_source_raw_filename_falls_out(tmp_path):
+    store = RawStore("desktop", tmp_path)
+    assert store.path_for("2026-05-19") == tmp_path / "raw" / "desktop-2026-05-19.jsonl"
+    assert store.current_path == tmp_path / "current" / "desktop.json"
+
+
 def test_close_idempotent(tmp_path):
     store = RawStore("sway", tmp_path)
     store.write(make_event("sway", "a", ts="2026-05-19T08:00:00.000+10:00"))

@@ -22,6 +22,36 @@ def write_raw(root: Path, day: str, events) -> Path:
     return p
 
 
+def test_run_derives_desktop_segments_with_source_desktop(root: Path):
+    # EX-2/VT-3: a raw/desktop-*.jsonl derives focus segments stamped
+    # source='desktop' (the threaded per-prefix source), carrying producer+output.
+    day = "2026-05-18"
+    events = [
+        make_event(
+            "desktop", "snapshot", ts=f"{day}T10:00:00.000+10:00",
+            producer="sway", output="DP-1", app_id="firefox", workspace="1",
+        ),
+        make_event(
+            "desktop", "window_focus", ts=f"{day}T10:30:00.000+10:00",
+            producer="sway", output="DP-1", app_id="ghostty", workspace="1",
+        ),
+    ]
+    (root / "raw" / f"desktop-{day}.jsonl").write_text(
+        "".join(e.to_json_line() + "\n" for e in events)
+    )
+
+    run(root, today=date(2026, 5, 19))
+
+    seg_path = root / "segments" / f"focus-{day}.jsonl"
+    assert seg_path.exists()
+    with open(seg_path) as fh:
+        segs = list(iter_jsonl(fh))
+    assert [s.source for s in segs] == ["desktop", "desktop"]
+    assert [s.fields["app_id"] for s in segs] == ["firefox", "ghostty"]
+    assert segs[0].fields["producer"] == "sway"
+    assert segs[0].fields["output"] == "DP-1"
+
+
 def test_run_produces_segments_and_histogram_for_past_day(root: Path):
     day = "2026-05-18"
     events = [

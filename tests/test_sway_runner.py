@@ -8,8 +8,9 @@ from typing import Any
 
 import pytest
 
+from panopticon.compositor.runner import Backoff
+from panopticon.compositor.sway.project import IpcEvent
 from panopticon.store import RawStore
-from panopticon.sway_watcher.ipc import Backoff, IpcEvent
 from panopticon.sway_watcher.runner import (
     process_session,
     run_watcher,

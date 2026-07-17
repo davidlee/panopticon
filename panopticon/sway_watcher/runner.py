@@ -24,6 +24,8 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import AbstractAsyncContextManager
 from typing import Any, Protocol, runtime_checkable
 
+from panopticon.compositor.runner import Backoff
+from panopticon.compositor.sway.project import IpcEvent
 from panopticon.store import RawStore
 from panopticon.sway_watcher.events import (
     snapshot_event,
@@ -31,7 +33,6 @@ from panopticon.sway_watcher.events import (
     sway_reconnected_event,
     transform,
 )
-from panopticon.sway_watcher.ipc import Backoff, IpcEvent
 from panopticon.sway_watcher.state import FocusState, focus_state_from_tree
 
 log = logging.getLogger("panopticon.sway")

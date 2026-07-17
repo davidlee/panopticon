@@ -16,7 +16,7 @@ from typing import Any
 
 import i3ipc.aio  # type: ignore[import-untyped]
 
-from panopticon.sway_watcher.ipc import IpcEvent
+from panopticon.compositor.sway.project import IpcEvent
 
 SUBSCRIBE_EVENTS: tuple[str, ...] = (
     "window",

@@ -45,3 +45,4 @@ async def frames(sock_path: str, *, connect_timeout: float = 2.0) -> AsyncIterat
             yield json.loads(line)
     finally:
         writer.close()
+        await writer.wait_closed()

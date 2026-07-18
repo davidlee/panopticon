@@ -39,7 +39,7 @@ class NiriWorkspace:
 
     id: int
     name: str | None
-    idx: int
+    idx: int | None
     output: str | None
     active_window_id: int | None = None
 
@@ -74,7 +74,7 @@ class NiriProjection:
             self.windows_by_id.get(ws.active_window_id) if ws.active_window_id is not None else None
         )
         window = WindowRef(win.id, win.app_id, win.pid, win.title) if win is not None else None
-        workspace = ws.name if ws.name else str(ws.idx)
+        workspace = ws.name or (str(ws.idx) if ws.idx is not None else str(ws.id))
         return DesktopState(window=window, workspace=workspace, output=ws.output)
 
 

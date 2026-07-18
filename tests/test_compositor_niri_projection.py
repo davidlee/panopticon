@@ -138,6 +138,12 @@ def test_workspace_active_window_changed_sets_per_workspace_active():
     assert proj.workspaces_by_id[4].active_window_id == 2
 
 
+def test_workspace_active_window_changed_unknown_workspace_is_inert():
+    proj = NiriProjection().apply(_workspaces_changed(_ws(4, 4, is_focused=True)))
+    event = {"WorkspaceActiveWindowChanged": {"workspace_id": 99, "active_window_id": 2}}
+    assert proj.apply(event) == proj
+
+
 def test_window_focus_changed_is_a_no_op():
     """DL-6: the raw focus stream is ignored; focus rides active_window_id."""
     before = _apply_all(
@@ -181,6 +187,13 @@ def test_to_state_empty_focused_workspace_yields_no_window():
     assert st.window is None
     assert st.workspace == "emacs"
     assert st.output == "DP-3"
+
+
+def test_to_state_workspace_missing_idx_falls_back_to_id_not_none():
+    """INV-N1: a workspace with neither name nor idx renders its id, never 'None'."""
+    ws = _ws(7, 7, name=None, is_focused=True, active_window_id=None) | {"idx": None}
+    proj = NiriProjection().apply(_workspaces_changed(ws))
+    assert proj.to_state().workspace == "7"
 
 
 def test_to_state_active_window_id_with_no_window_yet_is_none():
@@ -228,14 +241,24 @@ def test_burst_order_independent():
 # ---- golden replay (VT-4, ASM-1 regression guard) ---------------------------
 
 
-def test_golden_capture_replays_without_raising_and_output_is_dp3():
+def test_golden_capture_replays_to_dl6_focused_window():
+    """VT-4: the whole capture folds to the DL-6-derived focus, not just output.
+
+    capture-0 was recorded to exercise the coupling: its tail drives
+    ``WorkspaceActiveWindowChanged`` 106->104->106 on ws 4 (the raw
+    ``WindowFocusChanged`` stream ignored), then a ``WindowOpenedOrChanged``
+    mutates window 106's title. Asserting the derived ``window`` — not merely
+    ``output`` — makes this an actual regression guard for active_window_id
+    derivation. The ``{"Ok":"Handled"}`` ack folds in inertly (apply is total).
+    """
     proj = NiriProjection()
-    lines = (FIXTURES / "capture-0.ndjson").read_text().splitlines()
-    for line in lines:
+    for line in (FIXTURES / "capture-0.ndjson").read_text().splitlines():
         line = line.strip()
         if not line:
             continue
-        event = json.loads(line)
-        if isinstance(event, dict) and "Ok" not in event:
-            proj = proj.apply(event)  # never raises (INV-N1)
-    assert proj.to_state().output == "DP-3"
+        proj = proj.apply(json.loads(line))  # never raises (INV-N1)
+    assert proj.to_state() == DesktopState(
+        window=WindowRef(106, "com.mitchellh.ghostty", 3461334, "⠐ Claude Code"),
+        workspace="doctrine",
+        output="DP-3",
+    )

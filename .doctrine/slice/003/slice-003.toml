@@ -10,6 +10,36 @@ tags = []
 needs = ["SL-002"]                      # slice→work hard prerequisite
 after = []                      # slice→work soft sequence: { to, rank }
 
+[[selector]]
+selector = "panopticon/compositor/niri/protocol.py"
+intent = "design-target"
+note = "SL-003 code-impact touch-set (design §5, §5.4)"
+
+[[selector]]
+selector = "panopticon/compositor/niri/projection.py"
+intent = "design-target"
+note = "SL-003 code-impact touch-set (design §5, §5.4)"
+
+[[selector]]
+selector = "panopticon/compositor/niri/session.py"
+intent = "design-target"
+note = "SL-003 code-impact touch-set (design §5, §5.4)"
+
+[[selector]]
+selector = "panopticon/compositor/niri/__init__.py"
+intent = "design-target"
+note = "SL-003 code-impact touch-set (design §5, §5.4)"
+
+[[selector]]
+selector = "panopticon/compositor/detect.py"
+intent = "design-target"
+note = "SL-003 code-impact touch-set (design §5, §5.4)"
+
+[[selector]]
+selector = "panopticon/segmentizer/histogram.py"
+intent = "design-target"
+note = "SL-003 code-impact touch-set (design §5, §5.4)"
+
 [[relation]]
 label = "references"
 role = "implements"

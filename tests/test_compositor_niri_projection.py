@@ -227,6 +227,32 @@ def test_unknown_and_missing_fields_never_raise():
     assert proj.apply({"WindowClosed": {}}).windows_by_id == proj.windows_by_id
 
 
+def test_non_dict_body_is_inert():
+    """A known variant whose body is not a dict is ignored, never unpacked."""
+    proj = NiriProjection().apply(_windows_changed(_win(1)))
+    assert proj.apply({"WindowsChanged": "not-a-dict"}) == proj
+    assert proj.apply({"WorkspaceActivated": [1, 2]}) == proj
+
+
+def test_id_less_entities_are_dropped_not_raised():
+    """INV-N1: a window/workspace missing its id is skipped; the rest survive."""
+    proj = _apply_all(
+        NiriProjection(),
+        _windows_changed({"app_id": "no-id"}, _win(1)),
+        _workspaces_changed({"is_focused": True}, _ws(4, 4, is_focused=True)),
+    )
+    assert set(proj.windows_by_id) == {1}
+    assert set(proj.workspaces_by_id) == {4}
+    assert proj.focused_workspace_id == 4  # the id-less focused ws did not win
+
+
+def test_id_less_delta_targets_are_inert():
+    """A delta whose target has no id leaves the projection untouched."""
+    proj = NiriProjection().apply(_windows_changed(_win(1)))
+    assert proj.apply({"WindowOpenedOrChanged": {"window": {"app_id": "x"}}}) == proj
+    assert proj.apply({"WorkspaceActivated": {"focused": True}}) == proj
+
+
 # ---- burst-order independence ------------------------------------------------
 
 

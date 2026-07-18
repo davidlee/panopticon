@@ -17,38 +17,15 @@ from panopticon.compositor.niri.projection import (
     NiriWindow,
     NiriWorkspace,
 )
+from tests.niri_wire import win as _win
+from tests.niri_wire import windows_changed as _windows_changed
+from tests.niri_wire import workspaces_changed as _workspaces_changed
+from tests.niri_wire import ws as _ws
 
 FIXTURES = Path(__file__).parent / "fixtures" / "niri"
 
 
 # ---- builders ----------------------------------------------------------------
-
-
-def _win(id: int, **over) -> dict:
-    base = {"id": id, "app_id": "firefox", "pid": 12345, "title": f"win-{id}"}
-    base.update(over)
-    return base
-
-
-def _ws(id: int, idx: int, **over) -> dict:
-    base = {
-        "id": id,
-        "idx": idx,
-        "name": None,
-        "output": "DP-3",
-        "is_focused": False,
-        "active_window_id": None,
-    }
-    base.update(over)
-    return base
-
-
-def _windows_changed(*windows: dict) -> dict:
-    return {"WindowsChanged": {"windows": list(windows)}}
-
-
-def _workspaces_changed(*workspaces: dict) -> dict:
-    return {"WorkspacesChanged": {"workspaces": list(workspaces)}}
 
 
 def _apply_all(proj: NiriProjection, *events: dict) -> NiriProjection:

@@ -22,6 +22,15 @@ from typing import Any
 from panopticon.compositor.model import DesktopState, WindowRef
 
 
+def event_variant(event: Any) -> str | None:
+    """The niri event's variant tag (its sole top-level key), or ``None`` if the
+    event is not a non-empty dict. The one place the wire's tagged-union shape is
+    read — shared by :meth:`NiriProjection.apply` and the session's burst gate."""
+    if not isinstance(event, dict) or not event:
+        return None
+    return next(iter(event))
+
+
 @dataclass(frozen=True, slots=True)
 class NiriWindow:
     """Adapter-private window; only the neutral subset is surfaced."""
@@ -54,9 +63,9 @@ class NiriProjection:
 
     def apply(self, event: Any) -> NiriProjection:
         """Fold one native event in; unknown variants/fields are inert (INV-N1)."""
-        if not isinstance(event, dict) or not event:
+        variant = event_variant(event)
+        if variant is None:
             return self
-        variant = next(iter(event))
         handler = _HANDLERS.get(variant)
         if handler is None:  # ignored variant (WindowFocusChanged, overview, ...)
             return self

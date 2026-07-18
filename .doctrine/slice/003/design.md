@@ -112,9 +112,11 @@ pairing (SPEC-001 D3c) unchanged — SL-003 adds no lifecycle-event code.
 
 ```python
 # protocol.py (impure shell)
-async def frames(sock_path: str) -> AsyncIterator[dict]:
+async def frames(sock_path: str, *, connect_timeout: float = 2.0) -> AsyncIterator[dict]:
     """Connect, send "EventStream", assert {"Ok":"Handled"}, yield json.loads/line.
-    Raises on connect failure / bad ack → run_watcher turns it into a disconnect."""
+    Raises on connect failure / bad ack → run_watcher turns it into a disconnect.
+    The connect + ack read are bounded by connect_timeout so a wedged niri
+    (socket accepts, handler hung) fails fast instead of stalling (F-5)."""
 
 # projection.py (pure)
 @dataclass(frozen=True, slots=True)
@@ -181,28 +183,54 @@ optionality). **`workspace` = niri name when present, else the index as a string
 
 - **Connect**: `frames()` opens the socket, handshakes, streams. `NiriClient.session()`
   is the async ctx-mgr `run_watcher` drives.
-- **Initial burst → snapshot (D3a)**: buffer `apply()` calls; emit the first
-  `snapshot` observation **only on the first `WindowFocusChanged`** (the burst
-  terminator). EOF before it → generator returns with nothing yielded → partial
-  burst discarded, no half-built snapshot.
-- **Live deltas → diff emission (D10)**: after each event compute
-  `projection.to_state()`; emit only the neutral event whose projected value
-  changed — `window_focus` on focused-id change, `window_title` on title change,
-  `workspace_focus` on workspace/output change. A `WindowOpenedOrChanged` from
-  resize/column-move (title unchanged) emits nothing.
-- **`WindowFocusChanged {id: None}` (D3b)**: apply to projection but **emit no
-  observation** → no segment boundary, current-state untouched → deriver sees
-  continuation, not focus-loss. Overview toggling cannot flap the segment stream.
+- **Initial burst → snapshot (D3a).** The session runs a two-mode state machine
+  with an explicit **precedence rule** (the burst terminator wins over the
+  focus:None suppression — DL-3 is scoped to *live* mode only):
+  - *Burst mode* (before the snapshot): buffer `apply()` calls. The **first
+    `WindowFocusChanged`, regardless of its id** (including `id:None`), terminates
+    the burst and emits the `snapshot` observation. **An empty/no-focus snapshot is
+    valid** — a fresh session with nothing focused, boot-into-overview, or
+    all-windows-closed yields `DesktopState()` (empty), not "no snapshot". This is
+    what makes INV-N2 hold on an idle desktop.
+  - EOF during burst mode → generator returns having yielded nothing → partial
+    burst discarded (no half-built snapshot); `run_watcher` emits
+    `compositor_disconnected` and backs off.
+  - **Terminator existence is an ASM-1-class gate (DL-2):** SPEC-001 H1 states the
+    initial burst delivers full state including the focus, so a `WindowFocusChanged`
+    is expected in every burst. The golden capture (§9) **must confirm** a
+    `WindowFocusChanged` is always present in the initial burst — including for an
+    empty desktop. If the capture disproves it, the fallback terminator is the
+    first *live* event after both full-state bursts (`WindowsChanged` +
+    `WorkspacesChanged`) have been seen, plus a bounded idle flush; this fallback is
+    designed here (not merely "recorded") so PHASE-01 cannot be blocked by it.
+- **Live deltas → diff emission (D10)**: once the snapshot is emitted the session
+  is in *live mode*; after each event compute `projection.to_state()` and emit only
+  the neutral event whose projected value changed — `window_focus` on focused-id
+  change, `window_title` on title change, `workspace_focus` on workspace/output
+  change. A `WindowOpenedOrChanged` from resize/column-move (title unchanged) emits
+  nothing.
+- **`WindowFocusChanged {id: None}` in *live mode* (D3b)**: apply to projection but
+  **emit no observation** → no segment boundary → deriver sees continuation, not
+  focus-loss. Overview toggling cannot flap the segment stream. **Tradeoff (F-4):**
+  because `process_session` writes `current/*.json` only when an observation is
+  yielded (runner.py:81-84), suppressing focus:None leaves `current/desktop.json`
+  holding the *previously*-focused window while the user is actually in overview /
+  unfocused. SATAN's `current` scope reads that snapshot verbatim, so it reports a
+  stale focused window until the next real focus. We accept this: attention data
+  favours segment continuity over transient-overview accuracy, and the staleness is
+  bounded (cleared by the next `window_focus`). Named, not free (see §8 R5).
 - **Disconnect/reconnect (D3c)**: EOF/error → `run_watcher` emits
   `compositor_disconnected`, backs off, reconnects; the fresh session's snapshot-
   first stream gives the deriver a matching close/reopen. Handled by SL-002.
 - **Detection (D7)** — `detect.py::select_client`:
   - `niri` / `sway` → that client unconditionally (explicit choice trusts the user).
   - `auto` → **connect-validated** probe (not env presence): for each set socket
-    var, attempt `_probe` (connect, send `"EventStream"`, read ack, close); use the
-    one that connects; both connect → **NIRI wins** (stated, not list-order);
-    none connect → raise, listing what was tried. Replaces the F-1 `SWAYSOCK`
-    stand-in and completes D7 for two adapters.
+    var, attempt `_probe` (connect, send `"EventStream"`, read ack, close) **under a
+    bounded timeout (F-5)** so a wedged compositor whose socket still accepts fails
+    the probe and falls through rather than hanging startup; use the one that
+    connects; both connect → **NIRI wins** (stated, not list-order); none connect →
+    raise, listing what was tried. Replaces the RV-001 F-1 `SWAYSOCK` stand-in and
+    completes D7 for two adapters.
   - Because Niri is live and Sway dead, `--compositor auto` resolves to Niri on the
     host — live data switches on with no flag.
 - **Histogram (R4)** — `histogram.py::aggregate`: `per_workspace_seconds` buckets
@@ -218,13 +246,22 @@ optionality). **`workspace` = niri name when present, else the index as a string
   unknown field → return an equal/updated projection, never raise (additive-only
   wire stability).
 - **INV-N2** — the session's first yielded observation is always `snapshot` or
-  nothing (never a delta first); guarantees the pull→push contract.
+  nothing (never a delta first); guarantees the pull→push contract. The snapshot
+  may carry an **empty `DesktopState()`** (no-focus startup) — empty is a valid
+  snapshot, not a withheld one (F-1 precedence rule, §5.4).
 - **INV-N3** — neutral event **names** exactly match the deriver's contract
   (`snapshot`, `window_focus`, `window_title`, `workspace_focus`); a rename
   silently stops segments closing (SPEC-001 H4).
-- **ASM-1 (lock-gate)** — `Workspace.output` is the DRM connector name (e.g.
-  `"eDP-1"`), the *same* space as Sway's `output` (SPEC-001 D4). Confirmed by the
-  golden capture (§9) before the slice locks.
+- **ASM-1 (unlock-blocking gate, F-2)** — `Workspace.output` is the DRM connector
+  name (e.g. `"eDP-1"`), the *same* space as Sway's `output` (SPEC-001 D4). This is
+  **unverifiable in-jail** (no live Niri) and load-bearing: if it is false,
+  `DesktopState.output`, the D4 cross-producer equivalence, and the DL-5
+  `"output/workspace"` histogram key all break. SPEC-001 D4 requires it verified
+  "before the Niri slice locks." Therefore it is a **design→plan boundary gate**,
+  not a mid-execution check: the golden host capture (§9) must be produced and
+  ASM-1 confirmed **before `/plan`**. If the capture disproves ASM-1, the slice
+  takes the ADR-009 reconcile/design back-edge — no PHASE-01 code is written
+  against a broken assumption. (See §6 Q1 for the open action.)
 - **Edge — burst-order independence**: `WindowsChanged`/`WorkspacesChanged`/
   `WindowFocusChanged` may arrive in any order (H1-a); `to_state` tolerates a
   focused-id with no window yet, or a window with no workspace yet (→ `None`s).
@@ -243,8 +280,11 @@ optionality). **`workspace` = niri name when present, else the index as a string
   closes ASM-1/D4), plus hand-authored edge-case fixtures (partial burst,
   focus:None, reconnect, resize-no-title) the live capture cannot force on demand.
   Capture protocol in §9. Pinned to niri-ipc `=26.4.0`.
-- **Q1 (lock-gate)** — ASM-1: is `Workspace.output` literally the DRM connector
-  name on live Niri? Confirmed by the golden capture before design locks.
+- **Q1 (OPEN — design→plan gate, F-2)** — ASM-1: is `Workspace.output` literally
+  the DRM connector name on live Niri? **Action on the human:** run the §9 golden
+  capture on the Niri host and confirm before `/plan`. Cannot be closed in-jail.
+  The design is **locked-pending-Q1**: all other decisions are settled, but plan/
+  execution must not start until this clears (or bounces the design).
 - **Q2 (deferred to SL-004)** — SATAN's semantic understanding of the new
   `"output/workspace"` histogram keys (docs, prompt). No code dependency; not
   gating.
@@ -288,19 +328,30 @@ optionality). **`workspace` = niri name when present, else the index as a string
   rare; not gating.
 - **R4 — Sway/Niri histogram key mixing across the migration day.** *Mitigation:*
   Sway data is dead (memory); no live Sway stream collides. Documented in notes.
+- **R5 — `current/desktop.json` staleness during overview (F-4).** focus:None
+  suppression (DL-3) leaves current-state pointing at the last-focused window while
+  the user is unfocused; SATAN's `current` scope reports it stale. *Mitigation:*
+  accepted, bounded (cleared by the next real focus); the tradeoff favours segment
+  continuity. Revisit only if a consumer needs live overview state.
 
 ## 9. Quality Engineering & Validation
 
-- **Golden capture protocol (host, outside jail).** Connect and record a real
-  session to a committed NDJSON fixture:
+- **Golden capture protocol (host, outside jail — runs at the design→plan
+  boundary, F-2).** Connect and record a real session to a committed NDJSON fixture:
   ```
   socat -u UNIX-CONNECT:$NIRI_SOCKET - <<<'"EventStream"' | tee niri-golden.ndjson
-  # or a 20-line python asyncio snippet; capture: startup burst, focus A→B across
-  # two outputs, a title change, a workspace switch, an overview toggle (focus:None).
+  # or a 20-line python asyncio snippet; capture, in order: startup burst (with
+  # nothing focused if possible — the empty-desktop case), focus A→B across two
+  # outputs, a title change, a workspace switch, an overview toggle (focus:None).
   ```
-  Inspect it to (a) confirm ASM-1 (`output` = connector name), (b) confirm burst
-  order + terminator (DL-2/R2), (c) seed `tests/fixtures/niri/`. Version-stamp with
-  `niri --version` in the fixture header.
+  Inspect it to **close three gates before `/plan`**: (a) **ASM-1** — `output` is
+  the DRM connector name (Q1/F-2); (b) **F-1 terminator existence** — a
+  `WindowFocusChanged` is present in *every* initial burst, including the
+  empty-desktop capture, and note whether its `id` is `None` when nothing is
+  focused; (c) **burst order** — confirm cross-category order is non-deterministic
+  as H1 claims (validates the order-independent accumulator) and note the real
+  terminator. Then seed `tests/fixtures/niri/`. Version-stamp with `niri --version`
+  in the fixture header (pin `=26.4.0`).
 - **Pure projection tests** (`test_compositor_niri_projection.py`): burst-order
   permutations, novelty/upsert, `WindowClosed` id-drop, transitive-miss `None`s,
   unknown-variant ignore.
@@ -313,9 +364,15 @@ optionality). **`workspace` = niri name when present, else the index as a string
 - **Histogram tests** (`test_segmentizer_histogram.py`, extended): two workspaces
   same idx different output do **not** conflate; `per_app` unchanged.
 - **Cross-compositor equivalence** (`test_compositor_equivalence.py`): the same
-  logical scenario (focus A→B across workspaces) driven through both the Sway and
-  Niri sessions yields comparable `DesktopObservation` streams (event names +
-  neutral state), proving the contract is genuinely neutral.
+  logical scenario (focus A→B across two workspaces on two outputs) driven through
+  both the Sway and Niri sessions. **"Comparable" is pinned (F-6)** — the assertion
+  is: (a) the **event-name sequence is equal** (`snapshot`, `window_focus`,
+  `workspace_focus`, …); (b) the **`output` field matches** (both DRM connector
+  names — the D4 claim); (c) the **workspace-transition *shape* matches** (same
+  count/order of distinct workspace values), while the workspace *value* and
+  `app_id` *string* are permitted to diverge (DL-1 idx-string vs Sway name; XWayland
+  `class` vs xwayland-satellite — §5.5). Fixtures are hand-built to be structurally
+  aligned so this is a falsifiable equality, not a judgement call.
 - **Gate**: full suite green + ruff clean (run direct in-jail; `just` unavailable).
   SL-002 suites stay green unchanged (behaviour-preservation).
 - **VH (host, non-gating)**: `panopticon-desktop --compositor auto` on the live

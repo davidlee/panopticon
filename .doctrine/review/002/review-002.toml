@@ -1,0 +1,70 @@
+id    = 2
+slug  = "sl-003-niri-adapter-design-adversarial-pass"
+title = "SL-003 Niri adapter design — adversarial pass"
+# no status — a review's status is DERIVED from its findings (ADR-007 D-C8), so
+# it is never stored (the storage rule forbids derived data in authored files).
+
+[review]
+facet     = "design"     # scope|design|plan|phase-plan|implementation|code-review|reconciliation
+raiser    = "raiser"
+responder = "responder"
+
+[target]                   # the outbound `reviews` edge (ADR-004): RV-NNN ──reviews──▶ <ref>
+ref   = "SL-003"
+
+[[finding]]
+id = "F-1"
+status = "verified"
+severity = "blocker"
+title = "Burst-terminator rule contradicts focus:None rule on a startup with nothing focused"
+detail = """design.md §5.4 gives two rules that collide for a reachable startup state, with no precedence specified. Rule A (Initial burst → snapshot / DL-2/D3a): "emit the first snapshot observation ONLY on the first WindowFocusChanged (the burst terminator)." Rule B (WindowFocusChanged{id:None} / DL-3/D3b): "apply to projection but emit no observation." When a niri session starts with nothing focused — a fresh session with no autostart windows, boot into overview, or all windows closed — the burst-terminating WindowFocusChanged carries id:None (H1: focus is a single WindowFocusChanged{id:Option<u64>}; SPEC-001 Concerns explicitly lists "all windows closed" as a focus:None case). Taken literally, Rule B suppresses the only event Rule A relies on to emit the snapshot, so NO snapshot is ever yielded: the session buffers indefinitely until a real window is focused. That violates INV-N2 (first yielded observation is always snapshot-or-nothing, snapshot-first is the pull→push contract) and starves process_session (runner.py:81) — no store.write, current-state never initialised, no segments — on any fresh session with nothing focused. Worse: if empty-desktop niri emits no WindowFocusChanged at all, the sole terminator never arrives and the whole burst is discarded at EOF; R2's first-live-delta fallback is scoped only to the mid-burst false-terminator case and is explicitly "recorded, not built." Fix requires a precedence rule: the burst terminator must emit the snapshot regardless of focus id (empty state is valid), and DL-3's suppress-on-None must apply only to post-snapshot live deltas — plus a defined terminator for a burst that carries no WindowFocusChanged."""
+disposition = "fix-now"
+response = "Valid blocker. Explicit precedence rule added (§5.4): first WindowFocusChanged (any id, incl None) terminates the burst and emits the snapshot; empty DesktopState() snapshot is valid. DL-3 focus:None suppression now scoped to live mode only. INV-N2 admits an empty snapshot. Designed (not merely recorded) fallback terminator for a no-focus burst; terminator-existence is now a golden-capture gate (§9)."
+
+[[finding]]
+id = "F-2"
+status = "verified"
+severity = "major"
+title = "Design locks on ASM-1 while deferring the D4-mandated pre-lock live verification into PHASE-01 execution"
+detail = 'SPEC-001 D4 states output=DRM-connector-name is "asserted here as a decision, to be verified against a live Niri BEFORE the Niri slice locks." design.md defers that verification to the golden capture, which §10 schedules inside PHASE-01 — i.e. execution, AFTER design lock. §5.5 ASM-1 and §6 Q1 both claim it is "Confirmed by the golden capture before the slice/design locks," but §9 makes the capture a host-only protocol (socat/asyncio against $NIRI_SOCKET) that §2 confirms is unreachable from the build jail. So the confirmation the design claims as a lock precondition cannot occur in this environment and is in fact scheduled post-lock — a genuine process contradiction against D4. ASM-1 is load-bearing: if the live capture shows output is NOT the connector name (e.g. an output index, or a workspace label), DesktopState.output semantics, the cross-producer output equivalence (D4), and the per_workspace "output/workspace" histogram key (DL-5/D8) all break, forcing a post-lock design change. The design should either carry the live capture result before locking, or explicitly mark the slice unlockable pending it — not lock on an assumption D4 requires verified first and that is unverifiable in-jail.'
+disposition = "fix-now"
+response = "Valid. Removed false 'confirmed before locks' claims; ASM-1 is now an explicit design->plan gate (§5.5, §6 Q1): golden host capture must confirm output=connector-name BEFORE /plan (unverifiable in-jail) else the slice takes the ADR-009 design back-edge. Locked-pending-Q1; capture is a named human action."
+
+[[finding]]
+id = "F-3"
+status = "verified"
+severity = "major"
+title = "Delivery boundary contradicts slice-003.md scope (2 phases; Non-Goal excludes neutral-core changes)"
+detail = """design.md §1 declares a locked delivery boundary of "the Niri adapter PLUS the live wire-up... completing detect.py's D7 and widening histogram.py (R4)," and §10 adds a third phase (PHASE-03: detect.py + histogram.py) — but slice-003.md is unreconciled with this. slice-003.md §Scope lists only 2 phases (protocol+projection; normalization+equivalence), and its Non-Goals state "Any change to the neutral core / Sway adapter / schema (owned by SL-002)." detect.py is enumerated as part of the compositor-neutral core in SPEC-001 (Overview: "compositor-neutral core (compositor/model, compositor/runner, compositor/events, compositor/detect)"), so a literal reading of the scope's Non-Goal forbids the very detect.py change the design makes central. histogram.py (R4) and its per_workspace key-shape change — which alters a SATAN-consumed artifact — appear nowhere in the scope doc's phase breakdown or Non-Goals. Under the doctrine gate (no code without an approved scope), a plan built on this design would implement work (histogram.py de-conflation, PHASE-03) that the governing scope document does not authorise and partly forbids. Reconcile: update slice-003.md to state the expanded delivery boundary and carve detect.py/histogram.py out of the neutral-core Non-Goal, or narrow the design back to the 2-phase scope. (detect.py's D7 seam does name SL-003 as its owner, so the intent is defensible — but the scope artifact must say so, not contradict it.)"""
+disposition = "fix-now"
+response = "Valid. slice-003.md reconciled: locked delivery boundary + 3rd phase (live wire-up) + Non-Goal rewritten to carve out detect.py (SPEC-001 D7 names SL-003 owner) and histogram.py R4 (SL-002 audit deferred here) as in-scope exceptions; neither changes the event schema and the histogram change is SATAN-code-safe."
+
+[[finding]]
+id = "F-4"
+status = "verified"
+severity = "minor"
+title = "focus:None current-state staleness is framed as purely positive; the current-scope lie is unacknowledged"
+detail = """design.md §5.4 (D3b bullet) and DL-3 present "emit no observation → current-state untouched" as an unqualified good ("Overview toggling cannot flap the segment stream"). It weighs only the segment-continuation benefit and never acknowledges the countervailing cost: because process_session writes current-state only when an observation is yielded (runner.py:81-84), suppressing focus:None leaves current/desktop.json holding the PREVIOUSLY-focused window while the user is actually in overview / has nothing focused. The SATAN "current" scope (satan-tools-activity.el:110-115, activity_read) reads that snapshot verbatim and would report a focused window/title that is no longer true — a current-state accuracy lie, the exact tradeoff against segment-continuation the design should name and adjudicate. The decision (favour continuation) may well be right, but the design records it as free when it is a real correctness tradeoff for the current-scope consumer; §5.5/§8 should note the staleness and its bound (persists until the next real focus). Grounded: §5.4 D3b, DL-3, and runner.py's yield-gated write_current."""
+disposition = "fix-now"
+response = "Valid. §5.4 D3b + §8 R5 name the current/desktop.json staleness tradeoff (stale focus during overview, read verbatim by SATAN current scope). Decision retained (favour segment continuity), recorded as bounded, not free."
+
+[[finding]]
+id = "F-5"
+status = "verified"
+severity = "minor"
+title = "Auto-detect probe has no ack-read timeout — a wedged niri hangs detection unboundedly"
+detail = """design.md §5.4 (Detection/D7) specifies the auto probe as "connect, send 'EventStream', read ack, close," and §5.1 protocol.frames similarly "assert {'Ok':'Handled'}." Reading the ack does prove more than a bare socket-accept — it confirms niri's IPC handler responded, which is the right liveness bar. But no timeout is specified on that read. If niri's event loop is wedged (or slow) while its listener socket still accepts connections, the probe's blocking ack read never returns and select_client hangs — the socket "exists but niri is wedged" case in the attack surface. The probe (and frames) need a bounded read/connect timeout so a wedged compositor fails the probe and falls through to the other adapter (or raises "none connected"), rather than stalling the whole watcher at startup before any session opens. Grounded: §5.4 detection bullet and §5.1 frames signature, neither of which carries a timeout."""
+disposition = "fix-now"
+response = "Valid. Bounded connect_timeout added to protocol.frames (§5.1) and the auto probe (§5.4): a wedged niri fails the probe and falls through instead of stalling startup."
+
+[[finding]]
+id = "F-6"
+status = "verified"
+severity = "minor"
+title = """Cross-compositor equivalence test's "comparable" is undefined — not yet a real assertion"""
+detail = """design.md §9 (Cross-compositor equivalence) promises the same scenario driven through both sessions "yields comparable DesktopObservation streams (event names + neutral state), proving the contract is genuinely neutral." "Comparable" is not operationalised into a testable assertion, and the design's own text shows the streams cannot be equal: §5.5 notes XWayland app_id strings differ between producers (Sway window_properties.class vs Niri xwayland-satellite), and DL-1 vs Sway naming means workspace values differ in origin (niri idx-string vs Sway named string). So an equality assertion over full observation state would fail by construction, yet the design gives no weaker, precise criterion — equal event-NAME sequence? equal output field only? structurally-aligned hand-built fixtures? As written the test proves whatever the author decides "comparable" means at execution, which is exactly the hand-waviness a design should close. Pin the assertion: state which dimensions must match (event-name sequence + which state fields) and which are permitted to diverge, so the test has a falsifiable pass condition. Grounded: §9 equivalence bullet vs §5.5 xwayland edge and DL-1."""
+disposition = "fix-now"
+response = "Valid. §9 pins 'comparable': equal event-name sequence + equal output field + equal workspace-transition shape; workspace value and app_id string may diverge (DL-1/xwayland). Falsifiable over structurally-aligned fixtures."
+
+# Findings are append-only `[[finding]]` tables, added by `review raise` (PHASE-03).
+# Empty here at creation — a fresh review is Active, awaiting the raiser (D-C8).

@@ -242,8 +242,12 @@ retained: a real no-window dwell, correctly distinct from overview (DL-6).
   - Because Niri is live and Sway dead, `--compositor auto` resolves to Niri on the
     host — live data switches on with no flag.
 - **Histogram (R4)** — `histogram.py::aggregate`: `per_workspace_seconds` buckets
-  on `(output, workspace)` rendered as a flat `"output/workspace"` string key
-  (`"eDP-1/1"` ≠ `"DP-2/1"`); `per_app_seconds` and `per_hour_seconds` unchanged.
+  on `f"{output}/{workspace}"` **when the segment carries `output`** (`"eDP-1/1"` ≠
+  `"DP-2/1"`), else the **bare `workspace`** string. This de-conflates Niri (which
+  always carries `output`) while leaving legacy Sway segments — which omit `output`
+  (`derive.py::_segment`) — keyed exactly as before, so historical aggregation stays
+  byte-identical (the behaviour-preservation gate). `per_app_seconds` and
+  `per_hour_seconds` unchanged.
   SATAN-safe: `activity_read` forwards the histogram dict verbatim to the LLM and
   never keys into `per_workspace_seconds` in Elisp (verified against
   `satan-tools-activity.el`), so the key-shape change breaks no consumer code.
@@ -357,9 +361,11 @@ retained: a real no-window dwell, correctly distinct from overview (DL-6).
   `to_state` reads. Trailing burst events (`OverviewOpenedOrClosed`, `CastsChanged`,
   …) are ignored or inert in live mode, so the snapshot cannot be partial for a
   reason that matters. `to_state` remains order-tolerant as defence in depth.
-- **R3 — `output` absent on some workspaces** (e.g. a disabled monitor). *Mitigation:*
-  `to_state` yields `output=None`; histogram key `"None/1"` is ugly but correct and
-  rare; not gating.
+- **R3 — `output` absent on some workspaces** (a disabled monitor, or legacy Sway
+  segments that never carry `output`). *Mitigation:* the histogram key falls back to
+  the **bare `workspace`** when `output` is absent (not `"None/1"`) — so a rare
+  disabled-monitor niri workspace and every historical Sway segment keep the
+  pre-SL-003 key, preserving behaviour. Not gating.
 - **R4 — Sway/Niri histogram key mixing across the migration day.** *Mitigation:*
   Sway data is dead (memory); no live Sway stream collides. Documented in notes.
 - **R5 — `current/desktop.json` staleness during overview (much reduced under

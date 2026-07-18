@@ -1,0 +1,103 @@
+# Implementation plan for SL-003 — the authored, durable phase plan.
+#
+# This is the single source of each phase's objective, criteria, verification,
+# and links. Runtime status lives separately under .doctrine/state/ (phase
+# tracking) — never record progress here. Hand-edit freely: the tool reads this
+# file but does not rewrite it.
+schema  = "doctrine.plan.overview"
+version = 1
+slice   = "SL-003"
+
+[specs]                          # empty in v1 — no spec/requirement registry yet
+primary       = []
+collaborators = []
+
+[requirements]
+targets      = []
+dependencies = []
+
+# One [[phase]] per ordered phase. Ids are PHASE-NN (zero-padded), immutable and
+# never reused once authored — edits append, they never renumber. Criterion ids
+# are local to their phase, bare, and equally immutable: EN-1 entry, EX-1 exit,
+# and verification by mode — VT-1 test, VA-1 agent, VH-1 human.
+
+[[phase]]
+id        = "PHASE-01"
+name      = "Protocol + pure projection"
+objective = """
+Impure protocol shell (AF_UNIX framing + EventStream ack + one json.loads per \
+line) and the pure NiriProjection accumulator whose to_state derives focus from \
+the focused workspace's active_window_id (DL-6). Commit the golden host captures \
+as fixtures; green against them plus hand-authored edges. Parsing is stdlib json \
+over the socket (SPEC-001 D3) — Niri carries NO python runtime dependency."""
+entrance_criteria = [
+  { id = "EN-1", text = "SL-003 design locked; ASM-1 confirmed by golden capture (Workspace.output = DRM connector name 'DP-3')." },
+  { id = "EN-2", text = "At least one golden host capture is available (niri-golden.ndjson in the repo root)." },
+]
+exit_criteria = [
+  { id = "EX-1", text = "panopticon/compositor/niri/protocol.py: async frames(sock_path, *, connect_timeout=2.0) connects, sends \"EventStream\", asserts the {\"Ok\":\"Handled\"} ack, then yields json.loads per line; connect + ack read are bounded by connect_timeout so a wedged niri fails fast (F-5). Deferred/lazy niri import — nothing on the --help / arg-parse path." },
+  { id = "EX-2", text = "panopticon/compositor/niri/projection.py: NiriProjection.apply is total and pure (unknown variant or field -> equal/updated projection, never raises); handles WindowsChanged / WorkspacesChanged (full-state replace + focused_workspace_id from the is_focused workspace), WindowOpenedOrChanged (upsert, novelty = id unseen), WindowClosed (id-drop before any reuse, D11), WorkspaceActivated (focused_workspace_id when focused), WorkspaceActiveWindowChanged (per-workspace active_window_id); WindowFocusChanged / OverviewOpenedOrClosed / WindowFocusTimestampChanged are ignored (DL-6)." },
+  { id = "EX-3", text = "to_state derives the window from the focused workspace's active_window_id (workspace -> active window, never window -> workspace); an empty focused workspace (active_window_id None) -> window None with workspace/output retained; workspace = name or str(idx) (DL-1); output = the connector-name string." },
+  { id = "EX-4", text = "Golden captures committed verbatim under tests/fixtures/niri/, each headed with the capturing niri --version (=26.4.0). The =26.4.0 pin is wire-format provenance recorded in the header, NOT a package dependency." },
+]
+verification = [
+  { id = "VT-1", expects = "Projection focus derivation: WindowsChanged / WorkspacesChanged full-state replace; WorkspaceActivated + WorkspaceActiveWindowChanged move focus; a raw WindowFocusChanged is a no-op; to_state reads focus via active_window_id.", test_file = "tests/test_compositor_niri_projection.py", keywords = ["NiriProjection", "WorkspaceActiveWindowChanged"], patterns = ["def test_"], waived = false },
+  { id = "VT-2", expects = "Totality + edges: unknown variant/field ignored (no raise); WindowClosed drops the id; empty focused workspace -> to_state window None; cross-category burst-order independence.", test_file = "tests/test_compositor_niri_projection.py", keywords = ["WindowClosed", "to_state"], patterns = ["def test_"], waived = false },
+  { id = "VT-3", expects = "Protocol framing over a fake AF_UNIX socket: sends \"EventStream\", asserts the {\"Ok\":\"Handled\"} ack, yields one dict per line; connect_timeout bounds a wedged handler.", test_file = "tests/test_compositor_niri_protocol.py", keywords = ["frames", "EventStream", "connect_timeout"], patterns = ["def test_"], waived = false },
+  { id = "VT-4", expects = "Golden replay (ASM-1 regression guard): feeding the committed capture through NiriProjection.apply never raises and to_state().output == \"DP-3\".", test_file = "tests/test_compositor_niri_projection.py", keywords = ["to_state", "DP-3"], patterns = [], waived = false },
+  { id = "VH-1", expects = "Floating-focus edge (DL-6 residual, non-gating): on the host, focus a floating window (e.g. Signal) and confirm WorkspaceActivated / WorkspaceActiveWindowChanged tracks it. If it does not, adopt DL-6 alternative (b) (occupancy-test on id:None).", waived = false },
+]
+specs = []
+requirements = []
+
+[[phase]]
+id        = "PHASE-02"
+name      = "Session + normalization + equivalence"
+objective = """
+NiriSession (burst-completion gate DL-2, diff emission D10, overview-inert by \
+construction) and NiriClient(producer="niri"); a snapshot-first observation \
+stream emitting the deriver's neutral names (snapshot / window_focus / \
+window_title / workspace_focus); a cross-compositor equivalence test proving \
+Niri and Sway yield comparable DesktopObservations (F-6)."""
+entrance_criteria = [
+  { id = "EN-1", text = "PHASE-01 complete: protocol.frames and NiriProjection are green." },
+]
+exit_criteria = [
+  { id = "EX-1", text = "panopticon/compositor/niri/session.py: NiriSession.observations() yields DesktopObservation(\"snapshot\", ...) once BOTH WindowsChanged and WorkspacesChanged have been applied (DL-2); a partial burst (only one full-state event seen) at EOF yields nothing; an empty DesktopState is a valid snapshot (INV-N2)." },
+  { id = "EX-2", text = "Live mode: after each event, diff to_state vs the prior state and emit the highest-precedence changed field -> workspace_focus (workspace/output changed), else window_focus (focused window changed), else window_title (title changed), carrying the full new state. Overview (OverviewOpenedOrClosed + WindowFocusChanged id:None) emits nothing (DL-6); an empty-workspace switch emits one workspace_focus carrying window None." },
+  { id = "EX-3", text = "NiriClient.producer == \"niri\"; session() is an async context manager run_watcher can drive unchanged; observations flow through encode(obs, \"niri\") -> store with NO change to the neutral model / runner / events / schema (behaviour-preservation)." },
+]
+verification = [
+  { id = "VT-1", expects = "Snapshot-first + burst gate: snapshot emitted only after both full-state events; a partial burst yields no snapshot; an empty state is a valid snapshot; never a delta before the snapshot (INV-N2).", test_file = "tests/test_compositor_niri_session.py", keywords = ["NiriSession", "snapshot"], patterns = ["def test_"], waived = false },
+  { id = "VT-2", expects = "Overview inert + empty-workspace: an OverviewOpenedOrClosed + WindowFocusChanged{id:None} pair emits nothing; a WorkspaceActivated to an empty workspace emits one workspace_focus with window None (both driven from the golden captures).", test_file = "tests/test_compositor_niri_session.py", keywords = ["OverviewOpenedOrClosed", "workspace_focus"], patterns = ["def test_"], waived = false },
+  { id = "VT-3", expects = "Diff emission: a title-only WindowOpenedOrChanged emits window_title; a resize / column-move with no title change emits nothing.", test_file = "tests/test_compositor_niri_session.py", keywords = ["window_title", "WindowOpenedOrChanged"], patterns = ["def test_"], waived = false },
+  { id = "VT-4", expects = "Cross-compositor equivalence (F-6): the same focus-A->B-across-two-outputs scenario driven through the Sway and Niri sessions yields an equal event-name sequence, output = DRM connector names on both, and a matching workspace-transition shape (count/order of distinct workspace values).", test_file = "tests/test_compositor_equivalence.py", keywords = ["NiriSession", "output"], patterns = ["def test_"], waived = false },
+]
+specs = []
+requirements = []
+
+[[phase]]
+id        = "PHASE-03"
+name      = "Live wire-up: detect + histogram"
+objective = """
+Complete detect.py's D7 resolution (connect-validated probe replacing the \
+RV-001 F-1 SWAYSOCK stand-in; both sockets set -> niri, DL-4; bounded timeout \
+F-5) and widen histogram.py's per_workspace de-conflation (R4): key on \
+"output/workspace" when the segment carries output, bare workspace when it does \
+not so legacy Sway aggregation stays byte-identical. --compositor auto then runs \
+Niri live end-to-end."""
+entrance_criteria = [
+  { id = "EN-1", text = "PHASE-02 complete: NiriClient is available for detect to wire in." },
+]
+exit_criteria = [
+  { id = "EX-1", text = "detect.py select_client: \"niri\" returns the NiriClient (lazily imported, mirroring _sway_client — no niri code on the --help path); \"auto\" runs a connect-validated _probe (connect, send \"EventStream\", read ack, close) under a bounded timeout for each set socket var, uses the one that connects, both connect -> NIRI (DL-4), none connect -> raises listing what was tried. The SWAYSOCK env stand-in (_sway_reachable) is retired." },
+  { id = "EX-2", text = "histogram.py aggregate: per_workspace_seconds keyed \"output/workspace\" when the focus_segment carries output, else the bare workspace string (legacy Sway segments, which omit output, stay byte-identical); per_app_seconds and per_hour_seconds unchanged." },
+  { id = "EX-3", text = "The SL-002 suites stay green unchanged (behaviour-preservation gate): the neutral model / runner / events and the Sway adapter are untouched; only detect.py and histogram.py change outside compositor/niri/." },
+]
+verification = [
+  { id = "VT-1", expects = "Detection: \"niri\" explicit -> NiriClient; auto both-connect -> niri (DL-4); auto one-connect -> that client; auto none-connect -> raises; the probe uses a fake socket and is bounded, no live compositor.", test_file = "tests/test_compositor_detect.py", keywords = ["select_client", "NiriClient"], patterns = ["def test_"], waived = false },
+  { id = "VT-2", expects = "Histogram de-conflation: two workspaces with the same idx on different outputs do NOT conflate (\"DP-3/1\" != \"eDP-1/1\"); a segment without output keeps the bare workspace key (legacy Sway byte-identical); per_app unchanged.", test_file = "tests/test_segmentizer_histogram.py", keywords = ["per_workspace_seconds", "output"], patterns = ["def test_"], waived = false },
+  { id = "VH-1", expects = "Host end-to-end (non-gating): panopticon-desktop --compositor auto on the live Niri host writes current/desktop.json with a real focused window and produces desktop raws with producer \"niri\".", waived = false },
+]
+specs = []
+requirements = []

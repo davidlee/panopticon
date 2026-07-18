@@ -24,13 +24,15 @@ Provisional phase breakdown (finalise at `/plan`):
 
 1. **Protocol + projection.** `compositor/niri/{protocol,projection}.py`: socket
    framing + ack, one `json.loads` per line; projection `windows_by_id`,
-   `workspaces_by_id`, `focused_window_id`, `active_workspace_by_output`.
-   `WindowsChanged`/`WorkspacesChanged` full-state; `WindowOpenedOrChanged`
-   open-or-mutate (novelty = id unseen); `WindowClosed`/`WindowFocusChanged`/
-   `WorkspaceActivated` deltas. D3 failure rules: burst-completion (buffer to first
-   `WindowFocusChanged`, empty snapshot valid; partial burst discarded), `focus
-   id:None` → continuation not close, reconnect emits the neutral snapshot +
-   disconnect pair. Ignore-and-continue on unknown fields/variants.
+   `workspaces_by_id`, `focused_workspace_id`. `WindowsChanged`/`WorkspacesChanged`
+   full-state; `WindowOpenedOrChanged` open-or-mutate (novelty = id unseen);
+   `WindowClosed`/`WorkspaceActivated`/`WorkspaceActiveWindowChanged` deltas. Focus
+   derives from the focused workspace's `active_window_id`, so `WindowFocusChanged`
+   and `OverviewOpenedOrClosed` are ignored — overview is inert by construction
+   (design DL-6, golden-capture-driven). Burst-completion = both full-state events
+   applied (DL-2); empty snapshot valid; partial burst discarded; reconnect emits
+   the neutral snapshot + disconnect pair. Ignore-and-continue on unknown
+   fields/variants.
 2. **Normalization + equivalence.** Emit normalized snapshot + observations; focus/
    title (diff-based per D10)/workspace/output correctness; emit-time timestamps (D9,
    ignore niri's `Timestamp`); EOF/reconnect + cross-compositor equivalence tests
@@ -61,9 +63,11 @@ to shared observations, with the review's failure rules baked in.
 
 ## Follow-Ups
 
-- **OQ-5 resolved at `/design`:** hybrid fixtures — one live golden host capture +
-  hand-authored edge cases, pinned to niri-ipc `=26.4.0` (design.md §9).
-- **Q1 / ASM-1 (design→plan gate):** the golden host capture must confirm
-  `output` = DRM connector name (SPEC-001 D4) **before `/plan`**. Unverifiable
-  in-jail; design is locked-pending-Q1 (design.md §6, RV-002 F-2).
+- **OQ-5 resolved at `/design`:** hybrid fixtures — two live golden host captures
+  (burst+empty-workspace, overview flap) + hand-authored edge cases, pinned to
+  niri-ipc `=26.4.0` (design.md §9).
+- **Q1 / ASM-1 (design→plan gate) — CLOSED 2026-07-18:** golden captures confirm
+  `output` = DRM connector name (`"DP-3"`, SPEC-001 D4). The captures also revised
+  the burst terminator (DL-2) and the focus model (DL-6); design is locked (design.md
+  §6, §10).
 </content>

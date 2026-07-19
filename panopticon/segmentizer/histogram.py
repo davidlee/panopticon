@@ -2,7 +2,8 @@
 
 Two segment streams are supported:
 
-* ``focus_segment`` (from sway) — contributes ``per_app_seconds``,
+* ``focus_segment`` (from a compositor adapter — sway or niri) — contributes
+  ``per_app_seconds``,
   ``per_workspace_seconds``, and ``per_hour_seconds`` (the desktop-focus
   per-hour bucket).
 * ``browser_tab_segment`` (from firefox) — contributes

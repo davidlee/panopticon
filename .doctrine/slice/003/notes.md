@@ -47,3 +47,22 @@ disposable phase sheet (`.doctrine/state/.../phase-NN.md`) that must survive
 - **F-P03-3 (VH-1, reconcile).** Live `--compositor auto` end-to-end on the niri host
   (real focused window in `current/desktop.json`; producer `niri` raws) is a manual
   host check — unrunnable in-jail (niri unreachable). Non-gating.
+
+## Audit / close-out (RV-003, 2026-07-19)
+
+- **Verdict: ships clean.** 326 pass / 3 host-skip, ruff clean, behaviour-preservation
+  gate held. Five findings, all terminal; no blocker. Full synthesis + brief in
+  `review/003/review-003.md`.
+- **F-1 (fixed in-audit).** `boundaries.toml` source-delta registry had drifted:
+  PHASE-02 recorded as a zero-width range at the pre-phase test commit `3d43c38`,
+  and PHASE-03's range *started* at PHASE-02's real code commit `07c7c7e` — so
+  `07c7c7e` (session.py + normalization + equivalence) was orphaned from both.
+  Symptom: `slice conformance` called `session.py` "undelivered" and `verify-vt`
+  called PHASE-02 VT-1..4 UNATTRIBUTABLE, *despite a green suite*. Fix:
+  `slice record-delta SL-003 PHASE-02 --commit 07c7c7e` → `undelivered:0`, VTs
+  attributable. **Lesson (mem):** a green suite does not imply a truthful
+  conformance ledger — cross-check the delta registry at audit.
+- **F-2 aligned** (VT-4 wording — see F-P02-1, no divergence).
+  **F-3 tolerated** (i3ipc private teardown — guarded + memory-anchored).
+  **F-4 tolerated** (VH-1 host end-to-end deferred, non-gating — see F-P03-3).
+  **F-5 fixed** (histogram.py header docstring de-sway-ified).

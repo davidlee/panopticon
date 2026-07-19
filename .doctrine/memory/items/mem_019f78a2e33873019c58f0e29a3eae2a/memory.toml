@@ -1,0 +1,42 @@
+memory_uid = "mem_019f78a2e33873019c58f0e29a3eae2a"
+memory_key = "mem.pattern.doctrine.conformance-vs-green-suite"
+schema_version = 1
+memory_type = "pattern"
+status = "active"
+title = "Conformance can lie when the source-delta registry drifts"
+summary = "At audit, cross-check the source-delta registry — a green suite does not imply a truthful conformance ledger."
+created = "2026-07-19"
+updated = "2026-07-19"
+
+[scope]
+paths = [".doctrine/state"]
+globs = []
+commands = []
+tags = ["audit", "conformance"]
+workspace = "default"
+repo = "github.com/davidlee/panopticon"
+repo_id_kind = "remote"
+repo_id_confidence = "high"
+
+[git]
+anchor_kind = "checkout_state"
+commit = ""
+tree = "206a17d3f3f84041c7d3e266737f3f6803c95ad2"
+ref_name = "refs/heads/main"
+checkout_state_id = "566d5ad9974858f74569c874d2a1f0f6dae6a810df8653567b1356ddfd3ee707"
+base_commit = "e347961058f1214266d30fa2ea2c9031cd4d0079"
+verified_sha = ""
+normalizer = "forget.checkout.v1"
+
+[review]
+verification_state = "unverified"
+reviewed = ""
+review_by = ""
+
+[trust]
+trust_level = "medium"
+
+[ranking]
+severity = "none"
+weight = 0
+

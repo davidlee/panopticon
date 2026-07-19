@@ -1,0 +1,61 @@
+id    = 3
+slug  = "reconciliation-review-of-sl-003"
+title = "reconciliation review of SL-003"
+# no status — a review's status is DERIVED from its findings (ADR-007 D-C8), so
+# it is never stored (the storage rule forbids derived data in authored files).
+
+[review]
+facet     = "reconciliation"     # scope|design|plan|phase-plan|implementation|code-review|reconciliation
+raiser    = "raiser"
+responder = "responder"
+
+[target]                   # the outbound `reviews` edge (ADR-004): RV-NNN ──reviews──▶ <ref>
+ref   = "SL-003"
+
+[[finding]]
+id = "F-1"
+status = "verified"
+severity = "major"
+title = "Source-delta registry misrecorded for PHASE-02/03: session.py falsely undelivered, PHASE-02 VT-1..4 unattributable"
+detail = "boundaries.toml recorded PHASE-02 as a zero-width range at 3d43c38 (a pre-phase test-only commit) → empty delta; PHASE-03 as [07c7c7e..e347961], whose start IS PHASE-02's real code commit. So 07c7c7e (session.py + normalization + equivalence tests) is captured by neither phase. Observed: 'slice conformance' reported session.py undelivered and 'slice verify-vt' reported PHASE-02 VT-1..4 UNATTRIBUTABLE (test files 'not modified by this slice'), despite all 326 tests green. Expected: the design-target touch-set fully delivered and every VT attributable. Evidence integrity defect in runtime state, not the shipped code."
+disposition = "fix-now"
+response = "Re-recorded PHASE-02's source delta to its real commit: 'slice record-delta SL-003 PHASE-02 --commit 07c7c7e'. Post-fix 'slice conformance' reports undelivered:0, all 6 design-targets conformant (session.py included); 'slice verify-vt' reports PHASE-02 VT-1..4 PASS. Runtime-state (boundaries.toml) correction, within audit scope; shipped code unchanged."
+
+[[finding]]
+id = "F-2"
+status = "verified"
+severity = "minor"
+title = "VT-4 prose 'equal event-name sequence' reads broader than the honest cross-output guarantee"
+detail = "plan.toml PHASE-02 VT-4 says the same focus A->B-across-two-outputs scenario yields an 'equal event-name sequence' on both adapters. A collapsed single-step cross-output switch is one workspace_focus in niri but can render as one window_focus in sway (ancestry index) — not equal. Observed: the equivalence test (test_compositor_equivalence.py) honestly realises VT-4 via the two-step 'switch ws then land on window' scenario, which both decompose as [snapshot, workspace_focus, window_focus]; the test passes as written. Documented in notes.md F-P02-1. Expected: no reader infers single-step equality. VT text is immutable-append (off-surface); no divergence in behaviour."
+disposition = "aligned"
+response = "Observed behaviour is correct: the equivalence test realises VT-4 via the two-step scenario and passes; both adapters emit [snapshot, workspace_focus, window_focus]. VT-4 text is immutable-append and off the reconcile write surface (plan criteria are not a direct-edit surface). The single-step caveat is durably recorded in notes.md F-P02-1 for future readers. No code or artefact change needed."
+
+[[finding]]
+id = "F-3"
+status = "verified"
+severity = "minor"
+title = "Sway auto-probe teardown depends on i3ipc private internals (no public close)"
+detail = "detect.py _close_i3ipc reaches into conn._loop/_sub_fd/_cmd_socket/_sub_socket because i3ipc.aio.Connection exposes no public close, and the auto probe must not leak fds. Observed: guarded with getattr + the one-shot asyncio.run loop teardown as backstop (F-P03-1); a memory (mem.fact.panopticon.i3ipc-no-public-close) records the constraint. Expected: no reliance on private API — unattainable given i3ipc's surface. Conscious, guarded, memory-anchored."
+disposition = "tolerated"
+response = "Accepted: i3ipc.aio.Connection exposes no public close, so a leak-free auto probe must undo connect()'s setup via private attrs. Mitigated by getattr-guards + the one-shot asyncio.run loop teardown backstop, and anchored by mem.fact.panopticon.i3ipc-no-public-close. Tradeoff consciously accepted; revisit iff i3ipc adds a public close."
+
+[[finding]]
+id = "F-4"
+status = "verified"
+severity = "minor"
+title = "VH-1 live '--compositor auto' end-to-end on the niri host not executed (unrunnable in-jail)"
+detail = "PHASE-03 VH-1 (real focused window in current/desktop.json, producer 'niri' raws via auto) is a host-only manual check; niri is unreachable inside the bubblewrap jail. Observed: deferred + documented (notes.md F-P03-3, phase-01 A2, phase-03 risks); the deferred-import + --help smoke and the fake-socket probe tests pass in-jail. Expected: full live end-to-end proof. Non-gating host verification, consciously deferred."
+disposition = "tolerated"
+response = "Accepted deferral: VH-1 is a host-only manual verification (niri unreachable in-jail). In-jail evidence — fake-socket probe tests, deferred-import + --help smoke, full green suite — covers everything runnable here. Documented in notes.md F-P03-3. Non-gating; to be exercised on the niri host post-close."
+
+[[finding]]
+id = "F-5"
+status = "verified"
+severity = "nit"
+title = "histogram.py header docstring said focus_segment is '(from sway)' though niri now emits it too"
+detail = "aggregate() serves both adapters after R4; the module header credited only sway while the inline R4 comment already documents niri's output key. Observed: header prose stale. Fixed in-audit to '(from a compositor adapter — sway or niri)'. Code behaviour unchanged."
+disposition = "fix-now"
+response = "Fixed in-audit: histogram.py header docstring now reads 'focus_segment (from a compositor adapter — sway or niri)'. Trivial doc accuracy; behaviour unchanged; suite stays green."
+
+# Findings are append-only `[[finding]]` tables, added by `review raise` (PHASE-03).
+# Empty here at creation — a fresh review is Active, awaiting the raiser (D-C8).

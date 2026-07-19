@@ -13,7 +13,7 @@ import asyncio
 
 import pytest
 
-from panopticon.compositor.niri.protocol import frames
+from panopticon.compositor.niri.protocol import frames, probe
 
 
 async def _serve(tmp_path, handler):
@@ -84,6 +84,63 @@ def test_connect_timeout_bounds_a_wedged_handler(tmp_path):
                 async for _ in frames(sock, connect_timeout=0.1):
                     pass
             release.set()  # unwedge so teardown is instant, not timeout-bound
+
+    asyncio.run(scenario())
+
+
+def test_probe_returns_true_on_clean_ack(tmp_path):
+    async def scenario():
+        async def handler(reader, writer):
+            await _drain_request(reader)
+            writer.write(b'{"Ok":"Handled"}\n')
+            await writer.drain()
+            writer.close()  # probe closes right after the ack; stream is irrelevant
+
+        sock, server = await _serve(tmp_path, handler)
+        async with server:
+            return await probe(sock)
+
+    assert asyncio.run(scenario()) is True
+
+
+def test_probe_rejects_a_bad_ack(tmp_path):
+    async def scenario():
+        async def handler(reader, writer):
+            await _drain_request(reader)
+            writer.write(b'{"Ok":"Denied"}\n')
+            await writer.drain()
+            writer.close()
+
+        sock, server = await _serve(tmp_path, handler)
+        async with server:
+            with pytest.raises(ValueError, match="unexpected niri ack"):
+                await probe(sock)
+
+    asyncio.run(scenario())
+
+
+def test_probe_raises_on_absent_socket(tmp_path):
+    async def scenario():
+        await probe(str(tmp_path / "absent.sock"), connect_timeout=0.1)
+
+    with pytest.raises(OSError):
+        asyncio.run(scenario())
+
+
+def test_probe_is_bounded_on_a_wedged_handler(tmp_path):
+    async def scenario():
+        release = asyncio.Event()
+
+        async def handler(reader, writer):
+            await _drain_request(reader)
+            await release.wait()  # accepts, never acks until released
+            writer.close()
+
+        sock, server = await _serve(tmp_path, handler)
+        async with server:
+            with pytest.raises((TimeoutError, asyncio.TimeoutError)):
+                await probe(sock, connect_timeout=0.1)
+            release.set()  # unwedge so teardown is instant
 
     asyncio.run(scenario())
 

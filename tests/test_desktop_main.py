@@ -38,9 +38,19 @@ def test_parse_args_help_exits():
 # ---- compositor selection (VT-1) ----
 
 
-def test_main_niri_raises_not_implemented(tmp_path):
-    with pytest.raises(NotImplementedError, match="SL-003"):
-        main(["--compositor", "niri", "--state-dir", str(tmp_path)])
+def test_main_niri_wires_niri_client_from_socket(monkeypatch, tmp_path):
+    """--compositor niri (with $NIRI_SOCKET) hands a niri client to the watcher."""
+    monkeypatch.setenv("NIRI_SOCKET", str(tmp_path / "niri.sock"))
+    captured = {}
+
+    def fake_run(client, store):
+        captured["producer"] = client.producer
+        captured["source"] = store.source
+
+    monkeypatch.setattr("panopticon.desktop_watcher.__main__._run", fake_run)
+    rc = main(["--compositor", "niri", "--state-dir", str(tmp_path)])
+    assert rc == 0
+    assert captured == {"producer": "niri", "source": "desktop"}
 
 
 def test_main_sway_wires_store_with_compat_alias(monkeypatch, tmp_path):

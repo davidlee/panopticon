@@ -52,9 +52,13 @@ def aggregate(segments: Iterable[Event], *, day: str) -> dict[str, Any]:
             continue
         duration = (clip_end - clip_start).total_seconds()
         app = f["app_id"]
+        # R4: de-conflate same-named workspaces across outputs (niri carries
+        # `output`); legacy sway segments omit it and stay byte-identical (D8).
+        output = f.get("output")
         ws = f["workspace"]
+        ws_key = f"{output}/{ws}" if output is not None else ws
         per_app[app] = per_app.get(app, 0.0) + duration
-        per_ws[ws] = per_ws.get(ws, 0.0) + duration
+        per_ws[ws_key] = per_ws.get(ws_key, 0.0) + duration
         _accumulate_hourly(per_hour, clip_start, clip_end)
 
     return {

@@ -1,0 +1,42 @@
+memory_uid = "mem_019f786f39c177b098eb5a16cfea9f09"
+memory_key = "mem.fact.panopticon.i3ipc-no-public-close"
+schema_version = 1
+memory_type = "fact"
+status = "active"
+title = "i3ipc aio.Connection has no public close — probe teardown"
+summary = "i3ipc.aio.Connection has no public close; a probe must undo connect()'s two sockets + loop reader"
+created = "2026-07-19"
+updated = "2026-07-19"
+
+[scope]
+paths = ["panopticon/compositor/detect.py"]
+globs = []
+commands = []
+tags = ["panopticon", "compositor", "i3ipc"]
+workspace = "default"
+repo = "github.com/davidlee/panopticon"
+repo_id_kind = "remote"
+repo_id_confidence = "high"
+
+[git]
+anchor_kind = "checkout_state"
+commit = ""
+tree = "6218bc7fe665ad3e0feeb4181f02763125548b02"
+ref_name = "refs/heads/main"
+checkout_state_id = "24918bc56b2d6a1e55c9cbf5a80cf77807cffeecc2cdd787e11c13a0a64639ee"
+base_commit = "07c7c7ea09ff968ebcf3f19f3038f3251cfd61ef"
+verified_sha = ""
+normalizer = "forget.checkout.v1"
+
+[review]
+verification_state = "unverified"
+reviewed = ""
+review_by = ""
+
+[trust]
+trust_level = "medium"
+
+[ranking]
+severity = "none"
+weight = 0
+

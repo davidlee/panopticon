@@ -88,3 +88,43 @@ def test_segment_crossing_into_next_day_is_clipped():
     # Only the 23:30–24:00 portion counts for 2026-05-19.
     assert h["per_app_seconds"] == {"firefox": 1800.0}
     assert h["per_hour_seconds"][23] == 1800.0
+
+
+# --- R4: per-output workspace de-conflation (niri carries `output`) -----------
+
+
+def seg_out(start: str, end: str, output: str, app: str = "firefox", ws: str = "1"):
+    """A focus_segment carrying an ``output`` (niri shape)."""
+    start_iso = f"2026-05-19T{start}{OFFSET}"
+    end_iso = f"2026-05-19T{end}{OFFSET}"
+    return make_event(
+        "niri", "focus_segment", ts=start_iso,
+        app_id=app, workspace=ws, output=output,
+        start_ts=start_iso, end_ts=end_iso, duration_s=0,
+    )
+
+
+def test_same_workspace_idx_on_different_outputs_does_not_conflate():
+    segs = [
+        seg_out("08:00:00.000", "08:30:00.000", output="DP-3", ws="1"),
+        seg_out("09:00:00.000", "09:15:00.000", output="eDP-1", ws="1"),
+    ]
+    h = aggregate(segs, day="2026-05-19")
+    # Keyed by output/workspace — the two ws "1"s stay distinct (D8).
+    assert h["per_workspace_seconds"] == {"DP-3/1": 1800.0, "eDP-1/1": 900.0}
+
+
+def test_segment_without_output_keeps_bare_workspace_key():
+    # Legacy sway segments omit `output` → byte-identical bare-key aggregation.
+    h = aggregate([seg("10:00:00.000", "10:30:00.000", ws="1")], day="2026-05-19")
+    assert h["per_workspace_seconds"] == {"1": 1800.0}
+
+
+def test_output_keying_leaves_per_app_and_per_hour_unchanged():
+    h = aggregate(
+        [seg_out("10:00:00.000", "10:30:00.000", output="DP-3", app="ghostty", ws="2")],
+        day="2026-05-19",
+    )
+    assert h["per_app_seconds"] == {"ghostty": 1800.0}  # per_app never keyed on output
+    assert h["per_hour_seconds"][10] == 1800.0
+    assert h["per_workspace_seconds"] == {"DP-3/2": 1800.0}

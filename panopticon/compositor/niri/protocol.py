@@ -23,11 +23,15 @@ _EVENT_STREAM_REQUEST = b'"EventStream"\n'
 _ACK = {"Ok": "Handled"}
 
 
-async def frames(sock_path: str, *, connect_timeout: float = 2.0) -> AsyncIterator[dict[str, Any]]:
-    """Yield one decoded niri event per line over the event stream.
+async def _connect_and_ack(
+    sock_path: str, connect_timeout: float
+) -> tuple[asyncio.StreamReader, asyncio.StreamWriter]:
+    """Connect, send ``"EventStream"``, and validate the ack.
 
-    Raises on connect failure, timeout, or an ack that is not
-    ``{"Ok":"Handled"}``.
+    Returns the live ``(reader, writer)`` on a clean ``{"Ok":"Handled"}`` ack;
+    the caller owns teardown. Bounded by ``connect_timeout`` (F-5). On any
+    post-connect failure the writer is closed before the exception propagates,
+    so no half-open connection leaks.
     """
     reader, writer = await asyncio.wait_for(
         asyncio.open_unix_connection(sock_path), connect_timeout
@@ -38,6 +42,21 @@ async def frames(sock_path: str, *, connect_timeout: float = 2.0) -> AsyncIterat
         ack_line = await asyncio.wait_for(reader.readline(), connect_timeout)
         if json.loads(ack_line) != _ACK:
             raise ValueError(f"unexpected niri ack: {ack_line!r}")
+    except BaseException:
+        writer.close()
+        await writer.wait_closed()
+        raise
+    return reader, writer
+
+
+async def frames(sock_path: str, *, connect_timeout: float = 2.0) -> AsyncIterator[dict[str, Any]]:
+    """Yield one decoded niri event per line over the event stream.
+
+    Raises on connect failure, timeout, or an ack that is not
+    ``{"Ok":"Handled"}``.
+    """
+    reader, writer = await _connect_and_ack(sock_path, connect_timeout)
+    try:
         async for line in reader:
             line = line.strip()
             if not line:
@@ -46,3 +65,17 @@ async def frames(sock_path: str, *, connect_timeout: float = 2.0) -> AsyncIterat
     finally:
         writer.close()
         await writer.wait_closed()
+
+
+async def probe(sock_path: str, *, connect_timeout: float = 2.0) -> bool:
+    """Connect-validate the niri event stream, then close (D7 auto-detect).
+
+    Runs the same connect + ``"EventStream"`` + ack handshake as :func:`frames`
+    (bounded, F-5), immediately tears the connection down, and returns ``True``.
+    Raises on connect failure, timeout, or a bad ack — ``detect._probe_niri``
+    converts a raise into "not reachable". Never streams events.
+    """
+    _reader, writer = await _connect_and_ack(sock_path, connect_timeout)
+    writer.close()
+    await writer.wait_closed()
+    return True

@@ -10,6 +10,7 @@ build/
 
 *.local.*
 
+.claude/settings.local.ljson
 
 # nix
 result

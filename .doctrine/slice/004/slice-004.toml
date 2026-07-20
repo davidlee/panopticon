@@ -1,7 +1,7 @@
 id = 4
 slug = "desktop-watcher-migration"
 title = "Desktop watcher docs and operational migration"
-status = "started"
+status = "reconcile"
 created = "2026-07-13"
 updated = "2026-07-20"
 tags = []

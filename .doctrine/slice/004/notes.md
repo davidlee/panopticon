@@ -236,3 +236,41 @@ established style with a large noisy diff). EX-4 "fmt" satisfied by style-match 
   script). Candidate appended phase or follow-up flakes slice.
 - **PHASE-01 README owner-eyeball** (VH-1) — the rendered architecture diagram
   legibility check remains a human acceptance item.
+
+## Audit close-out — RV-004 (2026-07-20)
+
+Ledger `RV-004` (reconciliation facet, target SL-004): **7 findings, all terminal,
+zero blockers**. `just check` green (327 passed, 3 skipped, zero lint); carve intact
+(no adapter/entrypoint/`--compositor sway`/runner touched — DEC-001 held).
+
+- **Conformance bootstrap** — PHASE-03's source-delta was unrecorded on entry (9
+  selectors mis-read as `undelivered`); re-recorded via
+  `slice record-delta SL-004 PHASE-03 --commit 49948f2` (F-1). Removed one over-broad,
+  never-delivered selector `tests/test_segmentizer_derive.py` (F-2). Conformance now
+  **11 conformant / 0 undelivered / 2 undeclared** (the 2 = this slice's own
+  `notes.md`+`slice-004.toml` bookkeeping).
+- **F-3 aligned** — PHASE-02/04 external evidence (R6): satan `70687ec`, .emacs.d
+  `8a7533b`, flakes `971282ef`.
+- **F-4 tolerated** — retention optimistic-fallback (`retention.py:106-110`) lost
+  incidental coverage; the deliberately un-hardened stranding path (§5.4/D3). Safety =
+  deploy precondition, not a test.
+- **F-5 fix-now → closed** — the `sleipnir-doctor-panopticon` SOURCES gap (IMP-001) was
+  remediated in flakes as its own `fix(SL-004)` commit **`5ff2eda7`** (SOURCES →
+  desktop+firefox, sway key dropped; + journal/coverage fixes), kept outside the
+  panopticon carve per DEC-001. Host doctor all-OK; **IMP-001 closed (fixed)**.
+- **F-6 aligned** — README VH-1 owner-accepted 2026-07-20.
+- **F-7 follow-up → CHR-003** — version skew `pyproject.toml` 0.1.0 vs `flake.nix`
+  0.2.1 (plan-deferred separate chore; PHASE-03 didn't touch `pyproject.toml`).
+
+**Cross-repo resolution.** The mid-PHASE-03 0-byte `segments/focus-<today>` symptom
+was caused by the pre-drop `_SOURCES` keying `sway` while live raws were `desktop`;
+PHASE-03's registry retirement fixed focus derivation on host (focus segments now
+~30KB, real intervals, niri producer + titles). Host-verified: `current/desktop.json`
+live ("now"); `current/sway.json` frozen (side-write retired) — the inert leftover,
+manual `rm` per §5.3 / handback #3.
+
+**Reconciliation brief (in `review-004.md`):** no design/governance/spec write pending
+— design.md proved accurate throughout; the only per-slice edit (F-2 selector prune)
+was applied in-audit. Reconcile confirms the clean brief → close. Runbook carries:
+EN-2 precondition re-check before next HM switch; daemon-reload before restart
+([[mem.fact.nix.hm-user-service-daemon-reload]]); `rm` leftover host `current/sway.json`.

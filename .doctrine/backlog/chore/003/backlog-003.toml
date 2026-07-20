@@ -1,12 +1,12 @@
 schema = "doctrine.backlog"
 version = 1
 
-id = 1
-slug = "doctor-panopticon-sources-desktop"
-title = "Repoint sleipnir-doctor-panopticon SOURCES sway->desktop"
-kind = "improvement"
-status = "resolved"
-resolution = "fixed"
+id = 3
+slug = "align-version-skew-pyprojecttoml-010-to-flakenix-021-sl-004-6-deferral"
+title = "Align version skew: pyproject.toml 0.1.0 to flake.nix 0.2.1 (SL-004 §6 deferral)"
+kind = "chore"
+status = "open"
+resolution = ""                 # seeded empty so `backlog edit` sets it in place
 created = "2026-07-20"
 updated = "2026-07-20"
 tags = []

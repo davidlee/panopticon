@@ -47,10 +47,6 @@ selector = "tests/test_desktop_main.py"
 intent = "design-target"
 
 [[selector]]
-selector = "tests/test_segmentizer_derive.py"
-intent = "design-target"
-
-[[selector]]
 selector = "tests/test_segmentizer_retention.py"
 intent = "design-target"
 

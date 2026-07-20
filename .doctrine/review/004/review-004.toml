@@ -1,0 +1,79 @@
+id    = 4
+slug  = "sl-004-close-out-audit-desktop-watcher-docs-operational-migration"
+title = "SL-004 close-out audit — desktop watcher docs & operational migration"
+# no status — a review's status is DERIVED from its findings (ADR-007 D-C8), so
+# it is never stored (the storage rule forbids derived data in authored files).
+
+[review]
+facet     = "reconciliation"     # scope|design|plan|phase-plan|implementation|code-review|reconciliation
+raiser    = "raiser"
+responder = "responder"
+
+[target]                   # the outbound `reviews` edge (ADR-004): RV-NNN ──reviews──▶ <ref>
+ref   = "SL-004"
+
+[[finding]]
+id = "F-1"
+status = "verified"
+severity = "minor"
+title = "Source-delta registry incomplete at audit entry — PHASE-03 delta unrecorded"
+detail = "Expected: recorded source-deltas cover every completed code phase. Observed: on audit entry, slice conformance read 9 design-target selectors (store.py, desktop_watcher/__main__.py, segmentizer/__main__.py, retention.py, and 4 tests) as UNDELIVERED — only PHASE-01's docs delta was recorded. git shows PHASE-03 (49948f2) did touch exactly those files; the registry simply never recorded PHASE-03. Evidence: git diff-tree 49948f2 vs conformance output. The registry is gitignored runtime state (no authored change)."
+disposition = "fix-now"
+response = "Bootstrapped the missing PHASE-03 delta in-audit: doctrine slice record-delta SL-004 PHASE-03 --commit 49948f2. Conformance re-read to 11 conformant / 1 undelivered. The registry is gitignored runtime state — no authored commit. Root cause: PHASE-03 landed without a record-delta call; noted for future phases."
+
+[[finding]]
+id = "F-2"
+status = "verified"
+severity = "minor"
+title = "Over-broad design-target selector: tests/test_segmentizer_derive.py never touched"
+detail = "Expected: design-target selectors match delivered edits. Observed: after recording PHASE-03, conformance is 11 conformant / 1 undelivered — tests/test_segmentizer_derive.py is declared but was touched by no SL-004 commit. The derive path needed no code change (schema.md docs were reconciled TO derive.py's event names, not the reverse). The selector over-declared. Fix is a registry edit (slice selector rm), not prose."
+disposition = "fix-now"
+response = "Removed the over-broad selector in-audit: doctrine slice selector rm SL-004 tests/test_segmentizer_derive.py (per-slice registry hygiene, not spec/governance). Conformance now 0 undelivered / 11 conformant. The derive path needed no code change so the selector never had a matching delta."
+
+[[finding]]
+id = "F-3"
+status = "verified"
+severity = "minor"
+title = "External phases (PHASE-02/04) carry no in-repo delta by design (R6)"
+detail = "Expected per design R6: SATAN/emacs repoint and flakes ops refresh land in external repos with no in-repo source-delta; conformance shows no in-repo signal for them. Observed: exactly that. VA/VH evidence is manual/external, recorded in notes.md with external refs (satan 70687ec, .emacs.d 8a7533b, flakes 971282ef; EX/VA rows all ticked). This is the accepted external-evidence model, not a coverage gap."
+disposition = "aligned"
+response = "Correct by design R6 — external phases land in satan/.emacs.d/flakes with no in-repo source-delta; the manual/external VA/VH evidence in notes.md (refs satan 70687ec, .emacs.d 8a7533b, flakes 971282ef) is the sanctioned evidence model. No in-repo conformance signal is expected or missing."
+
+[[finding]]
+id = "F-4"
+status = "verified"
+severity = "minor"
+title = "Retention optimistic-fallback (retention.py:106-110) lost incidental test coverage"
+detail = "Expected: the unknown-raw-source optimistic fallback retains coverage. Observed: PHASE-03 migrated the sway-raw fixtures to desktop (a known source), so no test now exercises retention.py:106-110 directly (previously incidental via sway-raw tests). Per design §5.4/D3 this is the deliberately un-hardened structural stranding path — 'no code test can assert won't-strand'. The coverage loss is a conscious consequence of that decision, not a regression."
+disposition = "tolerated"
+response = "Accepted. Per design §5.4/D3 the retention optimistic fallback is the deliberately un-hardened structural stranding path — 'no code test can assert won't-strand' given the shared focus-DAY prefix. Safety is a deploy precondition (no in-window raw/sway), not a test. The incidental coverage loss from migrating fixtures to desktop is a conscious consequence, not a regression; hardening/testing an intentionally un-hardened path adds no value."
+
+[[finding]]
+id = "F-5"
+status = "verified"
+severity = "major"
+title = "IMP-001: sleipnir-doctor-panopticon SOURCES sway-keyed, no desktop → false-WARNs post-migration"
+detail = "Expected: after the desktop watcher goes live, the host doctor script tracks the real producer. Observed: flakes:modules/home/linux/bin/sleipnir-doctor-panopticon keys SOURCES on sway/firefox with no desktop (+ sway_fresh gate, check_sway_journal); once raw/sway ages past 30 min it false-WARNs 'sway: no events today' and never tracks the live desktop producer. Design-scope gap: §2 surveyed behaviour.nix but not its sibling doctor script; a FUNCTIONAL SOURCES change is outside SL-004's locked comments-only carve (DEC-001). Already captured as backlog IMP-001 + ~/flakes/TODO.md. HUMAN-GATED: appended SL-004 phase vs follow-up flakes slice."
+disposition = "fix-now"
+response = "Remediated externally as part of the SL-004 cross-repo landing. The flakes agent repointed sleipnir-doctor-panopticon SOURCES to desktop+firefox (sway key dropped) plus journal/coverage fixes — landed as its own fix(SL-004) commit in the flakes repo (5ff2eda7), NOT inside the locked panopticon carve, because DEC-001's comments-only carve excluded a functional SOURCES change. Verified on host: no false-WARN when raw/sway ages; desktop is the keyed source. Owner-confirmed done 2026-07-20. Backlog IMP-001 closed (resolution fixed). This is the R6 external-evidence model — no in-repo delta."
+
+[[finding]]
+id = "F-6"
+status = "verified"
+severity = "major"
+title = "PHASE-01 README VH-1 owner-eyeball — human acceptance not yet attested"
+detail = "Expected: VH-1 (human) — owner confirms the rendered README architecture diagram is legible and presents Sway+Niri as first-class peers. Observed: the agent cannot perform a rendered-legibility eyeball; this acceptance remains open. All agent-verifiable PHASE-01 criteria (VA-1 event parity, VA-2 privacy byte-preservation) passed. HUMAN-GATED: needs owner sign-off or explicit deferral."
+disposition = "aligned"
+response = "Owner accepted 2026-07-20: README architecture diagram is legible and presents Sway + Niri as first-class peers. VH-1 satisfied. Agent-verifiable siblings (VA-1 event parity, VA-2 privacy byte-preservation) already passed."
+
+[[finding]]
+id = "F-7"
+status = "verified"
+severity = "minor"
+title = "Version skew pyproject.toml 0.1.0 vs flake.nix 0.2.1 — plan-deferred, not co-landed"
+detail = "Expected per plan.md: version skew is out of SL-004's intent, left for a separate chore 'unless trivially co-landed while editing pyproject.toml in PHASE-03'. Observed: PHASE-03 did not touch pyproject.toml (git diff-tree 49948f2), so it was not co-landed; skew persists (0.1.0 vs 0.2.1). Plan-sanctioned deferral → follow-up chore, not an SL-004 divergence."
+disposition = "follow-up"
+response = "Plan-sanctioned deferral (plan.md: version skew is out of SL-004 intent, a separate chore unless trivially co-landed in PHASE-03). PHASE-03 did not touch pyproject.toml, so not co-landed. Captured as CHR-003."
+
+# Findings are append-only `[[finding]]` tables, added by `review raise` (PHASE-03).
+# Empty here at creation — a fresh review is Active, awaiting the raiser (D-C8).

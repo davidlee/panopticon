@@ -1,0 +1,42 @@
+memory_uid = "mem_019f7f14105970509f9b73719bd57c40"
+memory_key = "mem.fact.nix.hm-user-service-daemon-reload"
+schema_version = 1
+memory_type = "fact"
+status = "active"
+title = "home-manager switch requires daemon-reload before restart (systemd-user)"
+summary = "After home-manager switch, systemctl --user restart relaunches the STALE in-memory ExecStart; NeedDaemonReload=no is a false-negative (Nix store 1970 mtime); daemon-reload first."
+created = "2026-07-20"
+updated = "2026-07-20"
+
+[scope]
+paths = []
+globs = []
+commands = ["systemctl --user restart", "home-manager switch"]
+tags = ["nix", "systemd", "home-manager", "deploy", "footgun"]
+workspace = "default"
+repo = "github.com/davidlee/panopticon"
+repo_id_kind = "remote"
+repo_id_confidence = "high"
+
+[git]
+anchor_kind = "checkout_state"
+commit = ""
+tree = "5c8a2aea7c98cb1888375d8c843a3ff16644f845"
+ref_name = "refs/heads/main"
+checkout_state_id = "4fa7d7b37e2d8732149a4a04736d3b4a2088d52ae96c1686595cd9a7aa59077a"
+base_commit = "bb695d495db781d60bf8c5772fd642aa39359fd4"
+verified_sha = ""
+normalizer = "forget.checkout.v1"
+
+[review]
+verification_state = "unverified"
+reviewed = ""
+review_by = ""
+
+[trust]
+trust_level = "medium"
+
+[ranking]
+severity = "none"
+weight = 0
+

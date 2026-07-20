@@ -121,9 +121,10 @@ the real producer. **Out of PHASE-04 scope** (behaviour.nix comments/smoke only;
 this is a different file + a *functional* SOURCES change, which VA-1's
 "only comments changed" would reject). A design-scope gap: §2 surveyed
 `behaviour.nix` but not its sibling doctor script. Filed by the flakes agent in
-`~/flakes/TODO.md`; retain the `journalctl --user-unit=panopticon-sway.service`
-target (D4 alias). **For `/audit` disposition** — candidate appended PHASE-05 (same
-"operational migration" intent) or a follow-up flakes slice.
+`~/flakes/TODO.md`; tracked in doctrine as **IMP-001**. **For `/audit`
+disposition** — candidate appended phase (same "operational migration" intent) or a
+follow-up flakes slice. Retain the `journalctl --user-unit=panopticon-sway.service`
+target (D4 alias).
 
 ## PHASE-04 — flakes ops refresh (completed, external)
 

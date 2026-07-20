@@ -38,15 +38,48 @@ moving number.
 retained `panopticon-sway` unit alias, and the retired-*source* framing are all
 distinct from removing Sway support.
 
-## PHASE-02 — pre-surveyed (not yet executed)
+## PHASE-02 — SATAN + doctor repoint (completed, external)
 
-Read-only survey of `/workspace/satan` + `/workspace/.emacs.d` (2026-07-20) →
-worklist, scope carve, and OQ resolutions captured in the disposable
-`handover.md`. Durable facts: OQ-1 answered (broad ERT fixture surface beyond the
-plan's 4 production readers — `satan-memory-evidence-test.el` alone ~8 sites);
-OQ-2 no-op (activity tool forwards the histogram to the LLM verbatim, no key
-enumerated); OQ-3 dissolved (an agent running in-repo already has write access).
+Read-only pre-survey of `/workspace/satan` + `/workspace/.emacs.d` (2026-07-20) →
+worklist, scope carve, and OQ resolutions. Durable facts: OQ-1 answered (broad ERT
+fixture surface beyond the plan's 4 production readers — `satan-memory-evidence-test.el`
+alone ~8 sites); OQ-2 no-op (activity tool forwards the histogram to the LLM verbatim,
+no key enumerated); OQ-3 dissolved (an agent running in-repo already has write access).
 **Scope tripwire:** `satan-tools-sway.el` (`sway_border_set`/`swaymsg` live tools)
 + sway event-schema tests are Sway-as-a-feature — OUT of scope (DEC-001); touch a
 `sway` match iff it is the `current/sway.json` storage path. Fence: keep the
 `systemctl … panopticon-sway` remediation string (design D4).
+
+**Execution handback (design R6 — external evidence; no in-repo delta).** Every reader
+of the transitional `current/sway.json` side-write now points at the wm-agnostic
+`current/desktop.json` primary (identical bytes; zero-downtime, content-identical).
+
+| Repo | Ref | Message |
+|---|---|---|
+| `/workspace/satan` | `70687ec` | fix(SL-004): repoint SATAN current-window readers to current/desktop.json |
+| `/workspace/.emacs.d` | `8a7533b` | fix(SL-004): repoint sleipnir-doctor current probe to current/desktop.json |
+
+Sites repointed (production + fixtures): `satan-tools-activity.el` (activity_read
+"current"), `satan-memory-evidence.el` (current-window probe + 2 docstrings),
+`satan-sensor-alerts.el` (malformed-remediation `head -1` hint),
+`.emacs.d/lisp/dl-sleipnir-doctor.el` (current probe); fixtures
+`satan-memory-evidence-test.el` (file renamed + `sway-path`→`desktop-path` locals),
+`satan-tools-activity-test.el`, `satan-resonance-test.el`, `satan-percept-test.el`.
+
+- **EX-1 / VA-1 ✓** — `grep -rn --include='*.el' 'sway\.json\|current/sway'` returns
+  zero readers in both repos (re-verified in-repo 2026-07-20).
+- **EX-2 ✓** — retained `systemctl --user status panopticon-sway` remediation string
+  UNCHANGED (unit name kept, design D4); persists in `satan-sensor-alerts.el` +3.
+- **EX-3 (OQ-2) ✓** — no-op confirmed: `satan-tools-activity.el` forwards `:histogram`
+  verbatim; no Elisp keys into `per_workspace_seconds`, so the niri `output/workspace`
+  key passes through untouched.
+- **EX-4 ✓** — committed in each external repo, scoped SL-004; refs captured above.
+- **ERT ✓** — every touched suite green. One unrelated failure
+  (`satan-db/test-db-available-p-probes-test-host`) is a Postgres-connectivity probe
+  (DB host unreachable in the sandbox), not the repoint. Lint clean.
+
+**Gate NOT crossed (design §5.5 INV — coordinator/human call):** the PHASE-03
+side-write drop was NOT triggered, nor any host deploy/rebuild ordering.
+Repoint-before-drop and the SATAN/emacs-rebuilt-before-retired-watcher sequencing
+remain deferred. **VH-1** (host confirms doctor + `activity_read "current"` resolve
+from `current/desktop.json` on live Niri) is host-side — pending, not attestable here.

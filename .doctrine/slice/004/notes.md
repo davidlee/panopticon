@@ -79,7 +79,48 @@ Sites repointed (production + fixtures): `satan-tools-activity.el` (activity_rea
   (DB host unreachable in the sandbox), not the repoint. Lint clean.
 
 **Gate NOT crossed (design §5.5 INV — coordinator/human call):** the PHASE-03
-side-write drop was NOT triggered, nor any host deploy/rebuild ordering.
-Repoint-before-drop and the SATAN/emacs-rebuilt-before-retired-watcher sequencing
-remain deferred. **VH-1** (host confirms doctor + `activity_read "current"` resolve
-from `current/desktop.json` on live Niri) is host-side — pending, not attestable here.
+side-write drop was NOT triggered. Repoint-before-drop and the sway-side-write
+retirement remain deferred.
+
+### VH-1 — SATISFIED on host (2026-07-20)
+
+The design premise "`desktop.json` is already the primary write" held **in-repo**
+but NOT on the host: the box was still running the pre-SL-002/003 sway-era watcher.
+Host redeployed to `panopticon-desktop` 0.2.1 (`home-manager switch`), and
+`current/desktop.json` is now live:
+
+```json
+{"window_id":296,"app_id":"com.mitchellh.ghostty","pid":3461334,
+ "title":"…","workspace":"doctrine","output":"DP-3"}   // producer:"niri"
+```
+
+- `raw/desktop-2026-07-20.jsonl` fresh, live `source:"desktop"` / `producer:"niri"`
+  events appending each second; `raw/sway-*.jsonl` frozen 19:32 (correct — nothing
+  writes it now). `current/sway.json` side-write refreshed 159 B (was an 84 B/Jul-11
+  corpse — current-window resolution had in fact been dead on the host for 9 days).
+- The four repointed readers consume exactly this file (EX-1/VA-1 code-verified).
+  Optional belt-and-suspenders eyeball if wanted: the Elisp doctor's `SATAN/sensors`
+  line → `current=ok`, and `activity_read "current"` → the focused window.
+
+**Deploy footgun (durable — cost us the whole detour).** `home-manager switch`
+flips the unit *symlink* to the new store path, but `systemctl --user restart`
+alone relaunches the **stale in-memory ExecStart** (the old `panopticon-sway`
+binary → a sway watcher crash-looping on a niri host, still writing `raw/sway`).
+`NeedDaemonReload=no` is a **false negative**: Nix store fragments carry a fixed
+1970 mtime + are immutable, so systemd's mtime check never sees the retarget —
+`systemctl cat` reads disk (new), the manager runs memory (old). **Fix: always
+`systemctl --user daemon-reload` before `restart` after a HM switch.**
+
+### Finding (out of scope) — `sleipnir-doctor-panopticon` is sway-keyed
+
+`flakes:modules/home/linux/bin/sleipnir-doctor-panopticon` keys `SOURCES` (l23) on
+`sway`/`firefox` with no `desktop` entry (+ `sway_fresh` gate l89/92/104-105,
+`check_sway_journal` l156). Now that the desktop watcher runs, once `raw/sway` ages
+past its 30-min threshold it false-WARNs "sway: no events today" and never tracks
+the real producer. **Out of PHASE-04 scope** (behaviour.nix comments/smoke only;
+this is a different file + a *functional* SOURCES change, which VA-1's
+"only comments changed" would reject). A design-scope gap: §2 surveyed
+`behaviour.nix` but not its sibling doctor script. Filed by the flakes agent in
+`~/flakes/TODO.md`; retain the `journalctl --user-unit=panopticon-sway.service`
+target (D4 alias). **For `/audit` disposition** — candidate appended PHASE-05 (same
+"operational migration" intent) or a follow-up flakes slice.

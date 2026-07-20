@@ -37,3 +37,16 @@ moving number.
 **DEC-001 honored:** docs keep Sway a first-class peer — `--compositor sway`, the
 retained `panopticon-sway` unit alias, and the retired-*source* framing are all
 distinct from removing Sway support.
+
+## PHASE-02 — pre-surveyed (not yet executed)
+
+Read-only survey of `/workspace/satan` + `/workspace/.emacs.d` (2026-07-20) →
+worklist, scope carve, and OQ resolutions captured in the disposable
+`handover.md`. Durable facts: OQ-1 answered (broad ERT fixture surface beyond the
+plan's 4 production readers — `satan-memory-evidence-test.el` alone ~8 sites);
+OQ-2 no-op (activity tool forwards the histogram to the LLM verbatim, no key
+enumerated); OQ-3 dissolved (an agent running in-repo already has write access).
+**Scope tripwire:** `satan-tools-sway.el` (`sway_border_set`/`swaymsg` live tools)
++ sway event-schema tests are Sway-as-a-feature — OUT of scope (DEC-001); touch a
+`sway` match iff it is the `current/sway.json` storage path. Fence: keep the
+`systemctl … panopticon-sway` remediation string (design D4).

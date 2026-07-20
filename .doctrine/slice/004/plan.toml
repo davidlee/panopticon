@@ -1,0 +1,137 @@
+# Implementation plan for SL-004 — the authored, durable phase plan.
+#
+# This is the single source of each phase's objective, criteria, verification,
+# and links. Runtime status lives separately under .doctrine/state/ (phase
+# tracking) — never record progress here. Hand-edit freely: the tool reads this
+# file but does not rewrite it.
+schema  = "doctrine.plan.overview"
+version = 1
+slice   = "SL-004"
+
+[specs]                          # empty in v1 — no spec/requirement registry yet
+primary       = []
+collaborators = []
+
+[requirements]
+targets      = []
+dependencies = []
+
+# One [[phase]] per ordered phase. Ids are PHASE-NN (zero-padded), immutable and
+# never reused once authored — edits append, they never renumber. Criterion ids
+# are local to their phase, bare, and equally immutable (.doctrine/glossary.md §
+# reference forms): EN-1 entry, EX-1 exit, and verification by mode —
+# VT-1 test (automated), VA-1 agent check, VH-1 human acceptance.
+#
+# Ordering & correctness (design §5.4): the ONE hard gate is repoint-before-drop,
+# so PHASE-03 (in-repo retirement) MUST follow PHASE-02 (SATAN repoint). PHASE-01
+# (docs) and PHASE-04 (flakes ops) carry no runtime coupling. PHASE-02 and PHASE-04
+# are external-repo (satan/.emacs.d/flakes) — no in-repo delta, no VT possible
+# (design R6); verified by VA/VH. PHASE-03 is the sole in-repo code phase and thus
+# the sole carrier of VT rows.
+
+[[phase]]
+id        = "PHASE-01"
+name      = "Docs refresh — compositor-neutral evergreen docs"
+objective = """
+Refresh README.md, docs/schema.md, docs/privacy.md from the Sway-only world to the
+compositor-neutral reality (Sway + Niri as peers behind panopticon-desktop).
+Reconcile schema.md's stale event list to derive.py; document the output/workspace
+histogram key (SL-003 Q2). Preserve privacy policy text verbatim. In-repo only.
+"""
+entrance_criteria = [
+  { id = "EN-1", text = "design.md locked (SL-004 at plan/ready); event-name + field truth read from panopticon/compositor + segmentizer/derive.py, not the stale doc." },
+]
+exit_criteria = [
+  { id = "EX-1", text = "README.md: arch diagram/table shows panopticon-desktop with sway|niri adapters as peers behind the neutral core; storage layout uses raw/desktop-*.jsonl + current/desktop.json; sample event carries source:\"desktop\" + producer + window_id; run section documents panopticon-desktop (auto) and --compositor sway|niri; stale test count corrected/de-numbered." },
+  { id = "EX-2", text = "docs/schema.md: source list adds `desktop` (producer sway|niri) and marks `sway` a retired historical source; the '## Sway events' section is renamed and its event names match derive.py exactly (snapshot, window_focus, workspace_focus, window_title, compositor_disconnected — NOT sway_disconnected/sway_reconnected); fields document producer/output/window_id; focus_segment documents the (producer, output, app_id, workspace) key; per_workspace_seconds documents the \"output/workspace\" (niri) vs bare workspace (legacy) key; SCHEMA_VERSION stays 1." },
+  { id = "EX-3", text = "docs/privacy.md: '## Sway watcher' heading is neutral (Desktop watcher), policy/capture/redaction text preserved verbatim, noted to cover Sway AND Niri metadata; line ~60 'while Sway was focused' neutralized." },
+]
+verification = [
+  { id = "VA-1", mode = "agent", expects = "An agent diffs docs/schema.md's documented event-name set against the names emitted in panopticon/compositor/**/session.py + segmentizer/derive.py and confirms parity (no stale sway_disconnected/sway_reconnected; compositor_disconnected + window_title present)." },
+  { id = "VA-2", mode = "agent", expects = "An agent confirms docs/privacy.md's capture/redaction policy paragraphs are byte-preserved from the pre-edit version (only headings/framing changed), and README's arch + storage + sample-event reflect the desktop/producer/window_id reality." },
+  { id = "VH-1", mode = "human", expects = "Owner eyeballs the rendered README architecture diagram/table for legibility and that Sway + Niri read as documented peers." },
+]
+specs        = []
+requirements = []
+
+[[phase]]
+id        = "PHASE-02"
+name      = "SATAN + doctor repoint (external: satan, .emacs.d)"
+objective = """
+Repoint the four out-of-repo readers from current/sway.json to current/desktop.json
+(zero-downtime: desktop.json is already the primary write). Update the related
+defcustom/docstrings. If SATAN carries an activity LLM prompt describing the
+histogram, note the output/workspace key format (SL-003 Q2). Keep the retained
+`systemctl … panopticon-sway` unit-name string untouched (Sway stays runnable).
+External repos — no in-repo delta (design R6); targets by repo-relative path.
+"""
+entrance_criteria = [
+  { id = "EN-1", text = "Write access to satan + .emacs.d arranged (temporary rw binds or un-jailed run); each repo root located at execution (paths are repo-relative, not /workspace absolutes)." },
+  { id = "EN-2", text = "Elisp test surface probed: grep satan + .emacs.d for tests/fixtures keying on current/sway.json (design OQ-1)." },
+]
+exit_criteria = [
+  { id = "EX-1", text = "All four reader sites resolve current/desktop.json — satan-tools-activity.el (current scope), satan-memory-evidence.el (path + stale-seconds defcustom + docstring), satan-sensor-alerts.el (head -1 remediation), .emacs.d/lisp/dl-sleipnir-doctor.el (current probe); no remaining reader path names current/sway.json." },
+  { id = "EX-2", text = "The retained `systemctl --user status panopticon-sway` remediation string is UNCHANGED (unit name kept, design D4)." },
+  { id = "EX-3", text = "If a SATAN activity system-prompt referencing workspace/histogram semantics exists, it notes the \"output/workspace\" key format; else recorded as no-op." },
+  { id = "EX-4", text = "Changes committed in each external repo, scoped SL-004; commit refs captured for notes.md (external evidence, R6)." },
+]
+verification = [
+  { id = "VA-1", mode = "agent", expects = "An agent greps satan + .emacs.d post-edit and confirms zero `current/sway.json` reader paths remain (excluding the retained systemctl unit-name string), and any Elisp fixtures were updated." },
+  { id = "VH-1", mode = "human", expects = "On the host, the doctor and `activity_read \"current\"` resolve the focused window from current/desktop.json (live Niri state)." },
+]
+specs        = []
+requirements = []
+
+[[phase]]
+id        = "PHASE-03"
+name      = "In-repo retirement — drop the sway storage bridge (LAST)"
+objective = """
+Drop the current/sway.json side-write and the current_aliases capability, and the
+legacy ('sway','focus') _SOURCES/retention registration. Invert/remove the
+side-write tests; add a negative registry-pin test so a future sway re-add is
+deliberate. Keep Sway a first-class compositor (adapter/--compositor sway/
+panopticon-sway all untouched, DEC-001). MUST follow PHASE-02 (repoint-before-drop).
+"""
+entrance_criteria = [
+  { id = "EN-1", text = "PHASE-02 complete: all four SATAN/doctor readers repointed to current/desktop.json (the hard repoint-before-drop gate, design §5.4)." },
+  { id = "EN-2", text = "Deploy precondition acknowledged: no raw/sway-*.jsonl within the 7-day window on the host (owner-confirmed 2026-07-19; the stranding hazard is structural — design D3/R4)." },
+]
+exit_criteria = [
+  { id = "EX-1", text = "panopticon/store.py: `current_aliases` param + the write_current fan-out loop removed; write_current writes exactly current/<source>.json." },
+  { id = "EX-2", text = "panopticon/desktop_watcher/__main__.py: `_CURRENT_ALIASES` removed; RawStore(\"desktop\", args.state_dir) with no aliases." },
+  { id = "EX-3", text = "segmentizer/__main__.py `_SOURCES` and retention.py `_SEGMENT_PREFIX_FOR_RAW` contain no `sway` entry (desktop + firefox only)." },
+  { id = "EX-4", text = "test_store.py `test_write_current_side_writes_aliases` removed; test_desktop_main.py alias assertion inverted (no sway alias / current_aliases == ()); a negative registry-pin test added; `just check` green (ruff + tests + fmt, zero warnings)." },
+  { id = "EX-5", text = "Sway support intact: the sway adapter, --compositor sway, and the panopticon-sway entrypoint/module are unchanged (DEC-001)." },
+]
+verification = [
+  { id = "VT-1", expects = "Behavioural: a source='desktop' RawStore writes ONLY current/desktop.json — no current/sway.json is produced (side-write retired). Asserts on filesystem output, so it survives removal of the current_aliases attribute.", test_file = "tests/test_store.py", keywords = ["test_write_current_desktop_only", "desktop.json"], patterns = ["def test_write_current_desktop_only"], waived = false },
+  { id = "VT-2", expects = "Negative registry-pin: `sway` is absent from the segmentizer _SOURCES source set and from retention._SEGMENT_PREFIX_FOR_RAW — a future re-add is deliberate. A negative assertion, not a whole-registry equality lock (design F-3).", test_file = "tests/test_segmentizer_main.py", keywords = ["test_sway_source_retired", "_SEGMENT_PREFIX_FOR_RAW"], patterns = ["not in"], waived = false },
+  { id = "VT-3", expects = "Behaviour-preservation of Sway support (DEC-001): --compositor sway still selects the Sway adapter after the retirement — the 'kept a first-class compositor' invariant, distinct from the bridge drop.", test_file = "tests/test_desktop_main.py", keywords = ["--compositor", "sway"], patterns = [], waived = false },
+]
+specs        = []
+requirements = []
+
+[[phase]]
+id        = "PHASE-04"
+name      = "flakes ops refresh (external: flakes)"
+objective = """
+Refresh the Sway-framed comments/smoke commands in the out-of-repo HM unit
+flakes:modules/home/linux/behaviour.nix to the desktop-watcher reality. Keep the
+`panopticon-sway` unit NAME (design D4, OQ-2 resolved) — the unit already runs
+panopticon-desktop via lib.getExe; no ExecStart change. Orthogonal to the retirement
+gate; ordered last so it never blocks PHASE-03. External repo — no in-repo delta (R6).
+"""
+entrance_criteria = [
+  { id = "EN-1", text = "Write access to flakes arranged; behaviour.nix located at execution (repo-relative)." },
+]
+exit_criteria = [
+  { id = "EX-1", text = "behaviour.nix header comments + smoke commands reference the desktop watcher and raw/desktop-*.jsonl / current/desktop.json (no Sway-only framing)." },
+  { id = "EX-2", text = "Unit name `panopticon-sway` retained; ExecStart (`${lib.getExe panopticon}`) unchanged; segmentize/git units untouched." },
+  { id = "EX-3", text = "Committed in flakes, scoped SL-004; commit ref captured for notes.md." },
+]
+verification = [
+  { id = "VA-1", mode = "agent", expects = "An agent confirms behaviour.nix comments/smoke are de-Sway-framed, the panopticon-sway unit name + ExecStart are unchanged, and no other unit was touched." },
+  { id = "VH-1", mode = "human", expects = "Host: `home-manager` build/switch evaluates behaviour.nix cleanly (or deferred to the separately-tracked backlog CHR-001 nix-run confirmation)." },
+]
+specs        = []
+requirements = []

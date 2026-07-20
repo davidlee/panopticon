@@ -10,10 +10,62 @@ tags = []
 needs = ["SL-002"]                      # slice→work hard prerequisite
 after = [{ to = "SL-003", rank = 0 }]                      # slice→work soft sequence: { to, rank }
 
+[[selector]]
+selector = "README.md"
+intent = "design-target"
+
+[[selector]]
+selector = "docs/schema.md"
+intent = "design-target"
+
+[[selector]]
+selector = "docs/privacy.md"
+intent = "design-target"
+
+[[selector]]
+selector = "panopticon/store.py"
+intent = "design-target"
+
+[[selector]]
+selector = "panopticon/desktop_watcher/__main__.py"
+intent = "design-target"
+
+[[selector]]
+selector = "panopticon/segmentizer/__main__.py"
+intent = "design-target"
+
+[[selector]]
+selector = "panopticon/segmentizer/retention.py"
+intent = "design-target"
+
+[[selector]]
+selector = "tests/test_store.py"
+intent = "design-target"
+
+[[selector]]
+selector = "tests/test_desktop_main.py"
+intent = "design-target"
+
+[[selector]]
+selector = "tests/test_segmentizer_derive.py"
+intent = "design-target"
+
+[[selector]]
+selector = "tests/test_segmentizer_retention.py"
+intent = "design-target"
+
+[[selector]]
+selector = "tests/test_segmentizer_main.py"
+intent = "design-target"
+
 [[relation]]
 label = "references"
 role = "implements"
 target = "SPEC-001"
+
+[[relation]]
+label = "related"
+target = "DEC-001"
 
 # STRUCTURAL relations are uniform `[[relation]]` rows, never a typed
 # `[relationships]` axis (SL-048 "the cut"). Slices carry no typed STRUCTURAL

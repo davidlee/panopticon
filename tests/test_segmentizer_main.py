@@ -7,7 +7,8 @@ from pathlib import Path
 import pytest
 
 from panopticon.schema import iter_jsonl, make_event
-from panopticon.segmentizer.__main__ import run
+from panopticon.segmentizer.__main__ import _SOURCES, run
+from panopticon.segmentizer.retention import _SEGMENT_PREFIX_FOR_RAW
 
 
 @pytest.fixture
@@ -17,9 +18,18 @@ def root(tmp_path: Path) -> Path:
 
 
 def write_raw(root: Path, day: str, events) -> Path:
-    p = root / "raw" / f"sway-{day}.jsonl"
+    p = root / "raw" / f"desktop-{day}.jsonl"
     p.write_text("".join(e.to_json_line() + "\n" for e in events))
     return p
+
+
+def test_sway_source_retired():
+    # SL-004 PHASE-03 (VT-2): the legacy `sway` storage source is retired — it is
+    # absent from the segmentizer registry and the retention prefix map. A negative
+    # pin (design F-3), not a whole-registry equality lock: re-adding `sway` must be
+    # a deliberate act, but adding other producers stays free.
+    assert "sway" not in {prefix for prefix, _seg, _derive in _SOURCES}
+    assert "sway" not in _SEGMENT_PREFIX_FOR_RAW
 
 
 def test_run_derives_desktop_segments_with_source_desktop(root: Path):
@@ -56,12 +66,12 @@ def test_run_produces_segments_and_histogram_for_past_day(root: Path):
     day = "2026-05-18"
     events = [
         make_event(
-            "sway", "snapshot",
+            "desktop", "snapshot",
             ts=f"{day}T10:00:00.000+10:00",
             app_id="firefox", workspace="1",
         ),
         make_event(
-            "sway", "window_focus",
+            "desktop", "window_focus",
             ts=f"{day}T10:30:00.000+10:00",
             app_id="ghostty", workspace="1",
         ),
@@ -92,12 +102,12 @@ def test_run_with_today_does_not_extrapolate_past_last_event(root: Path):
     today = "2026-05-19"
     events = [
         make_event(
-            "sway", "snapshot",
+            "desktop", "snapshot",
             ts=f"{today}T10:00:00.000+10:00",
             app_id="firefox", workspace="1",
         ),
         make_event(
-            "sway", "window_title",
+            "desktop", "window_title",
             ts=f"{today}T10:15:00.000+10:00",
             app_id="firefox", workspace="1", title="t",
         ),
@@ -114,7 +124,7 @@ def test_run_with_today_does_not_extrapolate_past_last_event(root: Path):
 
 
 def test_run_skips_files_with_no_events(root: Path):
-    (root / "raw" / "sway-2026-05-15.jsonl").write_text("")
+    (root / "raw" / "desktop-2026-05-15.jsonl").write_text("")
     run(root, today=date(2026, 5, 19))
     assert not (root / "segments").exists() or not list(
         (root / "segments").iterdir()
@@ -128,27 +138,27 @@ def test_run_handles_missing_raw_dir(tmp_path: Path):
 def test_run_invokes_retention(root: Path):
     # Old raw + matching segments → retention should remove raw, keep segments.
     old_day = "2026-04-01"
-    (root / "raw" / f"sway-{old_day}.jsonl").write_text("")
+    (root / "raw" / f"desktop-{old_day}.jsonl").write_text("")
     (root / "segments").mkdir()
     (root / "segments" / f"focus-{old_day}.jsonl").write_text("")
     run(root, today=date(2026, 5, 19))
     # Empty raw file produces no segments; old raw should be retained because
     # we never re-derive segments for an empty file. The pre-existing segments
     # file is what counts for retention.
-    assert not (root / "raw" / f"sway-{old_day}.jsonl").exists()
+    assert not (root / "raw" / f"desktop-{old_day}.jsonl").exists()
 
 
 def test_run_derives_browser_segments_and_merges_histogram(root: Path):
     day = "2026-05-18"
-    sway_events = [
+    focus_events = [
         make_event(
-            "sway", "snapshot",
+            "desktop", "snapshot",
             ts=f"{day}T10:00:00.000+10:00",
             app_id="firefox", workspace="1",
         ),
     ]
-    (root / "raw" / f"sway-{day}.jsonl").write_text(
-        "".join(e.to_json_line() + "\n" for e in sway_events)
+    (root / "raw" / f"desktop-{day}.jsonl").write_text(
+        "".join(e.to_json_line() + "\n" for e in focus_events)
     )
 
     firefox_events = [

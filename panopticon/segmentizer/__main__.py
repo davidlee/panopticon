@@ -33,13 +33,13 @@ log = logging.getLogger("panopticon.segmentizer")
 
 # Per-source pipeline: (raw filename prefix, segment filename prefix, derive fn).
 # Adding a producer is a one-line change here.
-# The desktop watcher (SL-002) emits source='desktop'; the legacy sway entry is
-# kept so historical raw/sway-*.jsonl in the retention window still derive
-# (source='sway' preserved). Both map to the 'focus' segment prefix — a same-day
-# collision would overwrite, but Sway is dormant so no new sway raws arise (R3).
+# The desktop watcher (SL-002/SL-003) emits source='desktop' for both Sway and Niri;
+# the legacy `sway` storage source was retired in SL-004 PHASE-03 (the storage-naming
+# bridge), so no `sway-*.jsonl` is derived — historical sway raws age out of the
+# retention window (deploy precondition, design D3/§5.4). Sway itself stays a
+# first-class compositor behind `panopticon-desktop --compositor sway` (DEC-001).
 _SOURCES = (
     ("desktop", "focus", derive_segments),
-    ("sway", "focus", derive_segments),
     ("firefox", "browser", derive_browser_segments),
 )
 

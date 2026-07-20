@@ -152,3 +152,87 @@ de-Sway-framed ("desktop behaviour event watcher, compositor-neutral: sway|niri"
   and a bare `pkgs.television` (`modules/shared/cli/_packages/find.nix:5`) both land
   `bin/tv` in the profile. A flakes-side defect, tracked in flakes, out of this
   slice.
+
+## PHASE-03 — In-repo retirement: drop the sway storage bridge (completed)
+
+The sole in-repo code phase. Retired the two sway *storage* surfaces (design §5.1
+rows 3+4) while keeping Sway a first-class compositor (DEC-001). `just check` green:
+327 passed, 3 skipped, zero lint. Diff touched only store + segmentizer + their
+tests — **no** `compositor/sway`, `sway_watcher`, `detect`, or `runner` file
+changed (EX-5 verified by `git diff --name-only`).
+
+**What dropped:**
+- `store.py`: removed the `current_aliases` param + the `write_current` fan-out
+  loop → `write_current` writes exactly `current/<source>.json` (EX-1). Note:
+  `_write_current_file(name, …)` keeps its `name` param but is now only ever called
+  with `self.source` — left as the isolated atomic-write helper (tmp + `os.replace`),
+  not inlined.
+- `desktop_watcher/__main__.py`: removed `_CURRENT_ALIASES`; `RawStore("desktop",
+  args.state_dir)` (EX-2).
+- `segmentizer/__main__.py` `_SOURCES` + `retention.py` `_SEGMENT_PREFIX_FOR_RAW`:
+  dropped the `("sway","focus")` row (EX-3). `desktop` + `firefox` only.
+
+**Criteria landed:**
+- **VT-1** `test_store.py::test_write_current_desktop_only` — filesystem assertion
+  (only `current/desktop.json`; no `current/sway.json`). Survives the attribute
+  removal because it asserts on output, not the attr.
+- **VT-2** `test_segmentizer_main.py::test_sway_source_retired` — negative pin: `sway`
+  absent from `_SOURCES` source set AND `_SEGMENT_PREFIX_FOR_RAW`. Genuine red→green
+  (was `{'desktop','firefox','sway'}`). Negative assertion, not a whole-registry lock
+  (design F-3).
+- **VT-3** `test_desktop_main.py::test_main_sway_wires_store_no_compat_alias` +
+  `test_parse_args_compositor_sway` — `--compositor sway` still selects the Sway
+  adapter (`producer=="sway"`, `source=="desktop"`). The kept-first-class invariant.
+
+**Finding — test-fixture migration beyond the plan's enumerated list.** Dropping the
+`sway` `_SOURCES`/retention row stops `sway-*.jsonl` from deriving, which broke 3
+tests that used `sway` raws as a *generic focus-source fixture*
+(`test_run_produces_segments_and_histogram_for_past_day`,
+`test_run_with_today_does_not_extrapolate_past_last_event`, and
+`test_segmentizer_retention.py::test_sway_raw_requires_focus_not_browser_segments`).
+Migrated every **storage-source** `sway` fixture in `test_segmentizer_main.py` +
+`test_segmentizer_retention.py` to `desktop` (the live focus source) —
+behaviour-preserving, and it stops the suite silently exercising the unknown-source
+retention fallback instead of the real `desktop→focus` mapping. Left untouched:
+`producer="sway"` kwargs, `--compositor sway`, and the VT-2/VT-3 sway assertions —
+those are the DEC-001 compositor/producer surfaces, not storage.
+
+**Coverage note for /audit.** The retention *optimistic fallback*
+(`retention.py:106-110`, unknown raw source → match any same-day segment) previously
+had incidental coverage via the sway-raw tests; after migrating those to `desktop`
+(a known source), no test exercises the fallback directly. This is the accepted
+structural stranding path (design §5.4 / D3) that we deliberately did **not** harden
+— flagged here so audit can decide whether a dedicated fallback-documentation test is
+worth adding.
+
+**`ruff format` is NOT the repo gate.** `just check` = `ruff check` (lint) + pytest.
+`ruff format --check` reports 3 touched files "would reformat" — but they also report
+that at HEAD (pre-existing compact hand-style in the test files). Matched the
+surrounding compact style; did not run `ruff format` (it would diverge from the
+established style with a large noisy diff). EX-4 "fmt" satisfied by style-match + green
+`just check`.
+
+### Host handback — required before the drop takes effect (NOT part of the green bar)
+
+1. **EN-2 host precondition (surface, don't drop blind).** The stranding hazard is a
+   *host-runtime* concern at **redeploy**, not triggered by this commit — the host
+   only rebuilds from `main` on a human `home-manager switch`. Before that redeploy,
+   re-confirm no `raw/sway-*.jsonl` sits in the 7-day retention window (owner-confirmed
+   2026-07-19; structurally permanent since Sway now writes `desktop` raws). Once the
+   drop is live, any stray in-window `sway-*.jsonl` would be reaped by the optimistic
+   fallback before deriving.
+2. **daemon-reload before restart.** After `home-manager switch`, run
+   `systemctl --user daemon-reload && systemctl --user restart …` — a bare restart
+   relaunches the stale in-memory ExecStart (Nix 1970-mtime false-negative). See
+   [[mem.fact.nix.hm-user-service-daemon-reload]] (this exact footgun bit VH-1).
+3. **Leftover `current/sway.json`** on the host is inert after retirement — a one-off
+   manual `rm`, not automated (design §5.3).
+
+### For /audit disposition
+
+- **IMP-001** — `sleipnir-doctor-panopticon` `SOURCES` still keys `sway`/`firefox`
+  with no `desktop`; false-WARNs once `raw/sway` ages past 30 min. A design-scope gap
+  surfaced at PHASE-02 VH-1 (§2 surveyed `behaviour.nix` but not its sibling doctor
+  script). Candidate appended phase or follow-up flakes slice.
+- **PHASE-01 README owner-eyeball** (VH-1) — the rendered architecture diagram
+  legibility check remains a human acceptance item.

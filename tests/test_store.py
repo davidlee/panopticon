@@ -68,16 +68,17 @@ def test_write_current_replaces_existing(tmp_path):
     assert json.loads(target.read_text()) == {"a": 2}
 
 
-def test_write_current_side_writes_aliases(tmp_path):
-    # DD7 compat: a source='desktop' store writes current/desktop.json AND
-    # current/sway.json with the same payload.
+def test_write_current_desktop_only(tmp_path):
+    # SL-004 PHASE-03 (VT-1): the sway storage-naming bridge is retired — a
+    # source='desktop' store writes ONLY current/desktop.json; no current/sway.json
+    # side-write. Asserts on filesystem output, so it survives removal of the
+    # current_aliases attribute.
     payload = {"window_id": 991, "app_id": "firefox", "workspace": "2:web"}
-    with RawStore("desktop", tmp_path, current_aliases=("sway",)) as store:
+    with RawStore("desktop", tmp_path) as store:
         store.write_current(payload)
     desktop = tmp_path / "current" / "desktop.json"
-    sway = tmp_path / "current" / "sway.json"
     assert json.loads(desktop.read_text()) == payload
-    assert json.loads(sway.read_text()) == payload
+    assert not (tmp_path / "current" / "sway.json").exists()
 
 
 def test_desktop_source_raw_filename_falls_out(tmp_path):

@@ -4,8 +4,7 @@ Resolves ``--compositor auto|sway|niri`` to an adapter via
 :func:`~panopticon.compositor.detect.select_client`, wires it into the
 neutral :func:`~panopticon.compositor.runner.run_watcher`, and writes the
 ``source:"desktop"`` stream to ``raw/desktop-*.jsonl`` +
-``current/desktop.json`` with the DD7 ``current/sway.json`` compat
-side-write. Installs signal handlers for graceful shutdown.
+``current/desktop.json``. Installs signal handlers for graceful shutdown.
 """
 
 from __future__ import annotations
@@ -20,10 +19,6 @@ from pathlib import Path
 from panopticon.compositor.detect import select_client
 from panopticon.compositor.runner import run_watcher
 from panopticon.store import RawStore
-
-# The compat side-write: current/desktop.json + current/sway.json (DD7/D2),
-# for the SATAN / doctor readers until SL-004 repoints them.
-_CURRENT_ALIASES = ("sway",)
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -64,7 +59,7 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     client, _producer = select_client(args.compositor)
-    store = RawStore("desktop", args.state_dir, current_aliases=_CURRENT_ALIASES)
+    store = RawStore("desktop", args.state_dir)
     try:
         _run(client, store)
     except KeyboardInterrupt:

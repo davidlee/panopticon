@@ -53,17 +53,20 @@ def test_main_niri_wires_niri_client_from_socket(monkeypatch, tmp_path):
     assert captured == {"producer": "niri", "source": "desktop"}
 
 
-def test_main_sway_wires_store_with_compat_alias(monkeypatch, tmp_path):
-    """--compositor sway builds a RawStore(source='desktop', aliases=('sway',))
-    and hands the sway client to the neutral watcher."""
+def test_main_sway_wires_store_no_compat_alias(monkeypatch, tmp_path):
+    """--compositor sway still selects the Sway adapter (source='desktop'), but the
+    current/sway.json compat side-write is retired (SL-004 PHASE-03) — no aliases.
+
+    VT-3: proves Sway support is intact (DEC-001) after the storage-bridge drop.
+    """
     captured = {}
 
     def fake_run(client, store):
         captured["producer"] = client.producer
         captured["source"] = store.source
-        captured["aliases"] = store.current_aliases
 
     monkeypatch.setattr("panopticon.desktop_watcher.__main__._run", fake_run)
     rc = main(["--compositor", "sway", "--state-dir", str(tmp_path)])
     assert rc == 0
-    assert captured == {"producer": "sway", "source": "desktop", "aliases": ("sway",)}
+    assert captured == {"producer": "sway", "source": "desktop"}
+    assert not (tmp_path / "current" / "sway.json").exists()

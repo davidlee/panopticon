@@ -9,10 +9,10 @@ Three tiers, three rules:
 - ``segments/`` keeps the last ``segment_days`` (default 90).
 - ``histograms/`` is retained forever and never touched here.
 
-The raw → segment mapping (``desktop`` → ``focus``, ``sway`` → ``focus``,
-``firefox`` → ``browser``) is duplicated in the segmentizer ``_SOURCES``
-tuple; if sources are added there, mirror them in
-:data:`_SEGMENT_PREFIX_FOR_RAW`.
+The raw → segment mapping (``desktop`` → ``focus``, ``firefox`` → ``browser``)
+is duplicated in the segmentizer ``_SOURCES`` tuple; if sources are added there,
+mirror them in :data:`_SEGMENT_PREFIX_FOR_RAW`. (The legacy ``sway`` → ``focus``
+entry was retired in SL-004 PHASE-03 alongside the ``_SOURCES`` row.)
 
 All operations are pure unlinks; segment/histogram producers handle
 their own atomic-rename writes.
@@ -26,7 +26,6 @@ from pathlib import Path
 
 _SEGMENT_PREFIX_FOR_RAW: dict[str, str] = {
     "desktop": "focus",
-    "sway": "focus",
     "firefox": "browser",
 }
 
@@ -93,7 +92,7 @@ def _day_from_name(name: str) -> date | None:
 
 
 def _source_from_raw_name(name: str) -> str | None:
-    """Extract ``"sway"`` from ``"sway-2026-05-19.jsonl"``."""
+    """Extract ``"desktop"`` from ``"desktop-2026-05-19.jsonl"``."""
     stem = name.rsplit(".", 1)[0]
     if len(stem) < 11 or stem[-11] != "-":
         return None

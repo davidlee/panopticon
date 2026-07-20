@@ -35,12 +35,9 @@ class RawStore:
         self,
         source: str,
         root: Path | str | None = None,
-        *,
-        current_aliases: tuple[str, ...] = (),
     ) -> None:
         self.source = source
         self.root = Path(root) if root else state_dir()
-        self.current_aliases = tuple(current_aliases)
         self._fd: int | None = None
         self._current_day: str | None = None
 
@@ -64,17 +61,12 @@ class RawStore:
         os.write(self._fd, line)
 
     def write_current(self, payload: dict[str, Any]) -> None:
-        """Atomically replace the current-state file(s) with ``payload``.
+        """Atomically replace ``current/<source>.json`` with ``payload``.
 
-        Writes ``current/<source>.json`` plus one file per entry in
-        ``current_aliases`` (the DD7 compat side-write:
-        ``current/sway.json`` alongside ``current/desktop.json``), each
-        with the same payload. Consumers polling a current-state file
-        never see a partial write; the rename is atomic on the same
-        filesystem.
+        Consumers polling the current-state file never see a partial
+        write; the rename is atomic on the same filesystem.
         """
-        for name in (self.source, *self.current_aliases):
-            self._write_current_file(name, payload)
+        self._write_current_file(self.source, payload)
 
     def _write_current_file(self, name: str, payload: dict[str, Any]) -> None:
         target = self._current_path_for(name)

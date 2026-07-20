@@ -29,14 +29,14 @@ def test_empty_root_returns_empty_report(root: Path):
 
 
 def test_raw_within_retention_is_kept(root: Path):
-    p = touch(root / "raw" / "sway-2026-05-15.jsonl")
+    p = touch(root / "raw" / "desktop-2026-05-15.jsonl")
     r = enforce(root, now=date(2026, 5, 19), raw_days=7)
     assert p.exists()
     assert r.removed_raw == []
 
 
 def test_raw_past_retention_with_segments_is_deleted(root: Path):
-    p = touch(root / "raw" / "sway-2026-05-01.jsonl")
+    p = touch(root / "raw" / "desktop-2026-05-01.jsonl")
     touch(root / "segments" / "focus-2026-05-01.jsonl")
     r = enforce(root, now=date(2026, 5, 19), raw_days=7)
     assert not p.exists()
@@ -45,7 +45,7 @@ def test_raw_past_retention_with_segments_is_deleted(root: Path):
 
 
 def test_raw_past_retention_without_segments_is_skipped(root: Path):
-    p = touch(root / "raw" / "sway-2026-05-01.jsonl")
+    p = touch(root / "raw" / "desktop-2026-05-01.jsonl")
     r = enforce(root, now=date(2026, 5, 19), raw_days=7)
     assert p.exists()
     assert r.removed_raw == []
@@ -91,8 +91,8 @@ def test_firefox_raw_with_browser_segments_is_deleted(root: Path):
     assert r.removed_raw == [p]
 
 
-def test_sway_raw_requires_focus_not_browser_segments(root: Path):
-    p = touch(root / "raw" / "sway-2026-05-01.jsonl")
+def test_desktop_raw_requires_focus_not_browser_segments(root: Path):
+    p = touch(root / "raw" / "desktop-2026-05-01.jsonl")
     touch(root / "segments" / "browser-2026-05-01.jsonl")
     r = enforce(root, now=date(2026, 5, 19), raw_days=7)
     assert p.exists()

@@ -124,3 +124,30 @@ this is a different file + a *functional* SOURCES change, which VA-1's
 `~/flakes/TODO.md`; retain the `journalctl --user-unit=panopticon-sway.service`
 target (D4 alias). **For `/audit` disposition** — candidate appended PHASE-05 (same
 "operational migration" intent) or a follow-up flakes slice.
+
+## PHASE-04 — flakes ops refresh (completed, external)
+
+Reframed the HM unit `flakes:modules/home/linux/behaviour.nix` for the
+compositor-neutral desktop watcher (design R6 — external evidence, no in-repo delta).
+
+| Repo | Ref | Message |
+|---|---|---|
+| `~/flakes` | `971282ef` | doc(SL-004): reframe panopticon HM unit for compositor-neutral desktop watcher |
+
+5-line framing-only diff: header storage note → `raw/desktop-*.jsonl` +
+`current/desktop.json`; smoke path `raw/sway-` → `raw/desktop-`; Description
+de-Sway-framed ("desktop behaviour event watcher, compositor-neutral: sway|niri");
++2-line defensive comment pinning the retained `panopticon-sway` alias (D4).
+
+- **EX-1 ✓ / VA-1 ✓** — comments + smoke reference the desktop reality; agent
+  confirmed only behaviour.nix framing changed.
+- **EX-2 ✓** — unit name `panopticon-sway` retained, `ExecStart ${lib.getExe
+  panopticon}` unchanged, `panopticon-segmentize`/`panopticon-git` units untouched.
+- **EX-3 ✓** — committed in flakes, scoped SL-004; ref captured above.
+- **VH-1 — behaviour.nix evaluates cleanly** (build reached home-manager-path
+  realization, past module eval; the edit is comment/string text only). The full
+  switch is **red on a PRE-EXISTING, unrelated `television` collision** — NOT
+  SL-004: `programs.television` (`modules/home/shared/nushell.nix:63`, wrapped `tv`)
+  and a bare `pkgs.television` (`modules/shared/cli/_packages/find.nix:5`) both land
+  `bin/tv` in the profile. A flakes-side defect, tracked in flakes, out of this
+  slice.

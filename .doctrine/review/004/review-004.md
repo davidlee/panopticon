@@ -100,3 +100,27 @@ into close as runbook/owner notes (not code gates): (a) the EN-2 deploy precondi
 re-check before the next `home-manager switch`; (b) `daemon-reload` before `restart`
 after a HM switch ([[mem.fact.nix.hm-user-service-daemon-reload]]); (c) `rm` the inert
 leftover host `current/sway.json`.
+
+## Reconciliation Outcome
+
+**No-op reconcile pass.** Every finding is terminal (all `verified`); the brief
+carried no pending reconciled-truth write. `design.md` proved accurate throughout —
+no per-slice prose edit and no governance/spec REV were warranted.
+
+### Direct edits applied
+- `slice-004.toml` selector registry: over-broad `design-target` selector
+  `tests/test_segmentizer_derive.py` removed (drove by RV-004 F-2). Applied in-audit
+  as a fix-now; committed `fddcc9c`. Conformance now 11 conformant / 0 undelivered.
+  Reconcile confirms — nothing re-written here.
+
+### REVs completed
+- **None.** No governance/spec finding was raised; no REV authored.
+
+### Delegated / tolerated (no reconcile surface)
+- RV-004 F-5 → remediated in flakes `5ff2eda7`; **IMP-001 closed (fixed)**.
+- RV-004 F-7 → **CHR-003** (plan-sanctioned version-skew chore).
+- RV-004 F-1 → PHASE-03 source-delta bootstrapped in the runtime registry (gitignored).
+- RV-004 F-4 → tolerated: retention optimistic-fallback un-hardened stranding path
+  (§5.4/D3); rationale in the finding disposition.
+
+Reconcile pass complete — handoff to `/close`.

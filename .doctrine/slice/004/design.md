@@ -139,6 +139,11 @@ The **five sway surfaces** and their disposition (the load-bearing carve):
   `raw/sway-*.jsonl` is frozen historical and never re-created (Sway runs write
   `desktop`).
 - **No schema change.** `SCHEMA_VERSION` stays 1.
+- **`current/sway.json` already holds `desktop` content.** The side-write copies the
+  *same* payload to both files, so on the live Niri host `current/sway.json` currently
+  contains Niri current-window state (`producer:"niri"`), read verbatim by SATAN today.
+  The repoint to `current/desktop.json` is therefore **content-identical** — it changes
+  the filename, never the bytes a reader sees. (Reinforces the zero-downtime property.)
 
 ### 5.4 Lifecycle, Operations & Dynamics
 
@@ -245,6 +250,14 @@ fallback (guards an impossible future).
 - **R5 — Docs drift back to stale.** schema.md event names must match code.
   *Mitigation:* reconcile the event list against `derive.py` / the session encoders at
   write time; consider a lightweight names-⊆-code check (nice-to-have, §9).
+- **R6 — Doctrine's ledger covers only panopticon.** The phase-delta / conformance
+  machinery (`boundaries.toml`, `slice record-delta`, `slice conformance`) tracks *this*
+  repo's commits; the satan / .emacs.d / flakes commits cannot be recorded as source-deltas
+  or conformance-checked here. Deliberately, the `design-target` selectors are in-repo
+  only (external targets live in §5.1 prose), so conformance will not false-flag them
+  undelivered — but the **evidence of external work is manual**: capture the four external
+  commit refs + the coordinated-landing outcome in `notes.md` at close. A phase that is
+  *entirely* external (SATAN repoint) produces no in-repo delta — plan must not expect one.
 
 ## 9. Quality Engineering & Validation
 
@@ -253,7 +266,11 @@ fallback (guards an impossible future).
   (assert `current_aliases == ()` / no `sway.json`), and drop the `source=="sway"`
   derive-equivalence assertions in the segmentizer suite. **Add** a registry-pin test:
   `_SOURCES` / `_SEGMENT_PREFIX_FOR_RAW` contain exactly `desktop` + `firefox` (no
-  `sway`) — so a future re-add is deliberate. `just check` (ruff + tests + fmt) green.
+  `sway`) — so a future re-add is deliberate. **Shape: a *negative* assertion**
+  (`"sway"` absent from the `_SOURCES` source set and from `_SEGMENT_PREFIX_FOR_RAW`),
+  **not** a full-structure equality lock — a whole-registry equality test would be
+  brittle against unrelated future source additions / reordering (tests behaviour —
+  "sway is retired" — not incidental structure). `just check` (ruff + tests + fmt) green.
 - **Docs.** Reviewed for accuracy against code; event-name list reconciled to
   `derive.py` (`snapshot`, `window_focus`, `workspace_focus`, `window_title`,
   `compositor_disconnected`). Optional: a test asserting schema.md's documented event
@@ -268,13 +285,33 @@ fallback (guards an impossible future).
 
 ## 10. Review Notes
 
-- Adversarial pass pending (design skill step 6). Attack surface to probe: (a) is the
-  "zero-downtime repoint" claim airtight — any reader that caches the path or reads at
-  a moment the primary write hasn't happened? (b) does dropping `current_aliases` from
-  `store.py` disturb any *other* caller or test beyond the two identified? (c) is the
-  registry-pin test the right shape, or does it lock in incidental structure? (d) the
-  `sway_disconnected` legacy close-branch in `derive.py:99` — retire alongside (dead
-  once no sway raws derive) or keep as harmless? Left as an optional cleanup pending
-  the pass.
+**Adversarial self-review — 2026-07-20 (design skill step 6). Findings integrated:**
+
+- **F-1 — `store.py` collateral: none (verified).** `RawStore` has exactly two
+  production callers — `firefox_host` (no `current_aliases`) and `desktop_watcher`
+  (the sole `current_aliases` user). Removing the capability is collateral-free; the
+  only touched tests are `test_store.py` + `test_desktop_main.py` (§9). §5.2 claim holds.
+- **F-2 — zero-downtime is airtight AND stronger than first stated.** The side-write
+  copies one payload to both files, so `current/sway.json` already holds `desktop`
+  (`producer:"niri"`) content on the live host; the repoint is content-identical
+  (§5.3). Staleness (mtime) semantics are unchanged — same writer, same `os.replace`.
+- **F-3 — registry-pin test brittleness.** Fixed: negative assertion (sway absent),
+  not whole-registry equality (§9).
+- **F-4 — doctrine ledger doesn't span external repos.** New risk R6 (§8): external
+  commits carry no in-repo delta; evidence is manual; a purely-external phase produces
+  no conformance signal. Feeds `/plan`.
+- **F-5 — `sway_disconnected` close-branch (`derive.py:99`).** Dead once no sway raws
+  derive. *Disposition:* **lean keep** — it is a 1-token liability guarded by a comment
+  that documents the historical dual-close, and removing it perturbs the F6 test for
+  zero live gain. Final call deferred to execution (a genuine micro-toss-up, not a
+  design question).
+
+**Doctrinal alignment:** no ADRs/policies/standards exist to conflict with; storage
+rule honoured (prose here, selectors/relations in `slice-004.toml`); pure/imperative
+split untouched (the only code delta removes an option from the impure store shell).
+No governance conflict surfaced → no `/consult` trigger.
+
+**Residual open items** carried to §6 (OQ-1 Elisp test surface, OQ-2 SATAN prompt,
+OQ-3 write-access mechanism) — all execution-time resolvable, none gating design lock.
 </content>
 </invoke>

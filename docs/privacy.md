@@ -2,7 +2,10 @@
 
 What panopticon captures, where the boundaries are.
 
-## Sway watcher
+## Desktop watcher
+
+Covers the compositor metadata captured by `panopticon-desktop` on either
+supported compositor — Sway and Niri alike.
 
 Captures (compositor metadata only):
 
@@ -57,8 +60,8 @@ own filter. The host always re-stamps `source="firefox"`; the extension
 cannot lie about provenance.
 
 The downstream segmentizer joins `browser_tab_segment` against
-`focus_segment` to discount in-browser dwell that happened while Sway
-was focused on another application.
+`focus_segment` to discount in-browser dwell that happened while the
+compositor was focused on another application.
 
 ## Future producers
 

@@ -18,29 +18,49 @@ Consumers must skip lines whose `v` they don't understand.
 
 ## Sources
 
-- `sway` — compositor events from the Sway IPC watcher.
+- `desktop` — compositor events from the neutral desktop watcher
+  (`panopticon-desktop`). Every event also carries a `producer` field naming
+  the live compositor — `sway` or `niri`. Running either compositor writes
+  `source:"desktop"` (`raw/desktop-*.jsonl`).
 - `firefox` — active-tab attention events from the Firefox WebExtension
   via `panopticon-firefox-host`.
+- `sway` — **retired historical source.** Pre-migration builds wrote
+  `source:"sway"` / `raw/sway-*.jsonl`; running Sway now writes `desktop`
+  (with `producer:"sway"`). Existing `sway` raws are frozen and age out of
+  the retention window; no new ones are produced.
 - (future) `ghostty`, `emacs`, `idle`.
 
-## Sway events
+## Desktop events
 
-Stubs — implementation pending. Expected event names:
+Emitted by the neutral watcher (`panopticon-desktop`) over either compositor
+adapter. Every event carries `source:"desktop"` plus a `producer` (`sway` or
+`niri`) and, where a window is involved, `window_id`, `app_id`, `pid`, `title`,
+`workspace`, and `output` (null-valued keys are omitted).
 
-- `window_focus`
-- `window_title`
+Common to both adapters:
+
+- `snapshot` — full focused-window state, emitted on init and after reconnect.
+- `window_focus` — focused window changed.
+- `window_title` — the focused window's title changed. Carries `old_title` and
+  `title`.
+- `workspace_focus` — active workspace changed. Carries `old_workspace`,
+  `workspace`, and `output`.
+
+Connection lifecycle (emitted by the watcher's reconnect loop):
+
+- `compositor_disconnected` — the IPC connection dropped (carries a `reason`).
+- `compositor_reconnected` — reconnected after a non-first connect (the session
+  supplies a fresh `snapshot` immediately after).
+
+The Sway adapter additionally passes through these i3ipc window/workspace change
+events (the Niri adapter emits none of them):
+
 - `window_new`
-- `window_close`
 - `window_move`
-- `workspace_focus`
+- `window_fullscreen_mode`
+- `window_urgent`
+- `window_close`
 - `workspace_urgent`
-- `binding`
-- `mode`
-- `output`
-- `input`
-- `sway_disconnected`
-- `sway_reconnected`
-- `snapshot` (emitted on init / reconnect)
 
 ## Firefox events
 
@@ -70,13 +90,16 @@ host.
 Derived by `panopticon-segmentize` and written to
 `segments/<prefix>-YYYY-MM-DD.jsonl`.
 
-- `focus_segment` (`focus-*.jsonl`) — contiguous `(app_id, workspace)`
-  interval. Source `sway`. Fields: `app_id`, `workspace`, `start_ts`,
-  `end_ts`, `duration_s`, and optional `last_title` — the most recent
-  window title observed during the segment (from `window_focus`,
-  `window_title`, or `snapshot` events). `last_title` is omitted when
-  no title was observed; downstream consumers must treat absence as
-  unknown.
+- `focus_segment` (`focus-*.jsonl`) — contiguous focused-window interval.
+  Source `desktop`. Its identity key is `(producer, output, app_id,
+  workspace)` — `producer` and `output` keep same-named workspaces on
+  different compositors/outputs from being conflated. Fields: `app_id`,
+  `workspace`, `start_ts`, `end_ts`, `duration_s`, plus `producer` and
+  `output` when present, and optional `last_title` — the most recent window
+  title observed during the segment (from `window_focus`, `window_title`, or
+  `snapshot` events). `last_title` is omitted when no title was observed;
+  downstream consumers must treat absence as unknown. Legacy `sway` segments
+  omit `producer`/`output` and stay byte-identical.
 - `browser_tab_segment` (`browser-*.jsonl`) — contiguous in-browser
   attention on one URL. Fields: `start_ts`, `end_ts`, `duration_s`,
   `window_id`, `tab_id`, `url`, `domain`, `title_start`, `title_end`,
@@ -96,3 +119,8 @@ Derived by `panopticon-segmentize` and written to
   "per_browser_hour_seconds": [s_0, ..., s_23]
 }
 ```
+
+The `per_workspace_seconds` key is `"output/workspace"` when the segment
+carries an `output` (niri — e.g. `"DP-1/3"`), disambiguating same-named
+workspaces across monitors; legacy `sway` segments (no `output`) key on the
+bare `workspace` name.

@@ -1,6 +1,7 @@
 # panopticon
 
-Local desktop-behaviour capture for Linux (Sway). Producers emit
+Local desktop-behaviour capture for Linux (Wayland compositors — Sway and
+Niri, auto-detected). Producers emit
 normalized JSONL events; a batch segmentizer derives attention spans
 and daily histograms. Consumers (e.g.
 [SATAN](https://github.com/davidlee/emacs-config/tree/main/satan)) read the derived
@@ -12,10 +13,12 @@ leaves the machine.
 ## Architecture
 
 ```
- sway ipc            firefox extension          (future: ghostty,
+ sway | niri ipc     firefox extension          (future: ghostty,
  ─────────┐          ──────────────┐             emacs, idle)
           │                        │                   │
-   panopticon-sway    panopticon-firefox-host          │
+  panopticon-desktop   panopticon-firefox-host         │
+  (auto-detects the                │                   │
+   live compositor)                │                   │
           │                        │                   │
           └──────────┬─────────────┴───────────────────┘
                      ▼
@@ -43,7 +46,7 @@ leaves the machine.
 
 | Binary | What it does |
 |--------|-------------|
-| `panopticon-sway` | Sway IPC watcher daemon. Tracks window focus, titles, workspaces. Reconnects with exponential backoff. |
+| `panopticon-desktop` | Compositor IPC watcher daemon (Sway or Niri, auto-detected). Tracks window focus, titles, workspaces. Reconnects with exponential backoff. Override detection with `--compositor sway\|niri`. The systemd unit ships under the retained name `panopticon-sway` (a stable alias — it runs `panopticon-desktop`). |
 | `panopticon-firefox-host` | Native messaging host for the Firefox WebExtension. Receives browser attention events, re-validates and writes JSONL. Routes content extraction to the content store. |
 | `panopticon-segmentize` | Nightly batch. Derives `focus_segment` and `browser_tab_segment` events, computes daily histograms, enforces retention. |
 | `panopticon-git` | Host-side git-commit poller (5-min timer). Scans `~/dev/*`, appends one segment per new commit straight to `segments/git-YYYY-MM-DD.jsonl`. Byte-compatible with the SATAN `post-commit` hook, but env-agnostic so it also captures commits made inside bwrap jails (where the hook never fires). |
@@ -58,7 +61,7 @@ Planned producers: ghostty/zsh shell hook, emacs, idle/lock watcher.
 ```
 ~/.local/state/behaviour/
 ├── raw/
-│   ├── sway-YYYY-MM-DD.jsonl         7-day TTL (only after segmented)
+│   ├── desktop-YYYY-MM-DD.jsonl      7-day TTL (only after segmented)
 │   └── firefox-YYYY-MM-DD.jsonl      7-day TTL (only after segmented)
 ├── segments/
 │   ├── focus-YYYY-MM-DD.jsonl        90-day TTL
@@ -67,7 +70,7 @@ Planned producers: ghostty/zsh shell hook, emacs, idle/lock watcher.
 ├── histograms/
 │   └── daily-YYYY-MM-DD.json         kept forever
 ├── current/
-│   └── sway.json                     last-known compositor state
+│   └── desktop.json                  last-known compositor state
 └── content/
     ├── articles.jsonl                index: one JSON object per extracted article
     └── <hash[:2]>/
@@ -98,7 +101,7 @@ that hook is tracked in `.emacs.d` ISSUE-006 (step 2).
 Every event is one JSON line:
 
 ```json
-{"v": 1, "ts": "2026-05-27T09:15:03.412+10:00", "source": "sway", "event": "window_focus", ...}
+{"v": 1, "ts": "2026-05-27T09:15:03.412+10:00", "source": "desktop", "producer": "niri", "event": "window_focus", "window_id": 42, "app_id": "firefox", "workspace": "3", ...}
 ```
 
 See [`docs/schema.md`](docs/schema.md) for the full reference and
@@ -141,11 +144,12 @@ nix build .#panopticon
 uv venv && uv pip install -e ".[dev]"
 ```
 
-### Run the sway watcher
+### Run the desktop watcher
 
 ```sh
-panopticon-sway -vv
-tail -f ~/.local/state/behaviour/raw/sway-$(date +%Y-%m-%d).jsonl
+panopticon-desktop -vv                 # auto-detects Sway or Niri
+# panopticon-desktop --compositor sway -vv   # force a specific adapter
+tail -f ~/.local/state/behaviour/raw/desktop-$(date +%Y-%m-%d).jsonl
 ```
 
 ### Run the firefox pipeline
@@ -196,7 +200,7 @@ jq '.per_app_seconds, .per_domain_seconds' \
 ## Development
 
 ```sh
-pytest              # 213 tests
+pytest              # test suite
 ruff check .        # lint
 nix build .#panopticon --no-link   # nix build sanity
 ```

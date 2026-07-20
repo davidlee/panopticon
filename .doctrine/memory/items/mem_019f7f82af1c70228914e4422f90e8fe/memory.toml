@@ -1,0 +1,42 @@
+memory_uid = "mem_019f7f82af1c70228914e4422f90e8fe"
+memory_key = "mem.fact.doctrine.reservation-local-fallback"
+schema_version = 1
+memory_type = "fact"
+status = "active"
+title = "Doctrine id-allocation needs DOCTRINE_RESERVATION_FALLBACK=1 in the jail"
+summary = "In this bubblewrap jail, doctrine id-allocation verbs need DOCTRINE_RESERVATION_FALLBACK=1 (remote reservation origin is ssh-disabled)"
+created = "2026-07-20"
+updated = "2026-07-20"
+
+[scope]
+paths = []
+globs = []
+commands = ["doctrine review new", "doctrine backlog new", "doctrine memory record"]
+tags = ["doctrine", "environment", "reservation", "sandbox"]
+workspace = "default"
+repo = "github.com/davidlee/panopticon"
+repo_id_kind = "remote"
+repo_id_confidence = "high"
+
+[git]
+anchor_kind = "checkout_state"
+commit = ""
+tree = "287c8fc3637fccfa98c2589e66b7ff43c209cd1b"
+ref_name = "refs/heads/main"
+checkout_state_id = "837c6d4911c9970e54046368ad65ab6cabb6a57e8c3d7f2001c0aed1e35d2ce1"
+base_commit = "d996a810ec91aa53188a03d704be5189104fb464"
+verified_sha = ""
+normalizer = "forget.checkout.v1"
+
+[review]
+verification_state = "unverified"
+reviewed = ""
+review_by = ""
+
+[trust]
+trust_level = "medium"
+
+[ranking]
+severity = "none"
+weight = 0
+

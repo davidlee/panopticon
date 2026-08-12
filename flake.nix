@@ -117,6 +117,19 @@
         {
           default = panopticon;
           panopticon = panopticon;
+
+          # The same `projectPkgs` the jails and the devshell get, as one
+          # package, for a consumer that jails differently: oubliette runs the
+          # agent inside a microVM, where a bwrap wrapper binding *host* paths
+          # is meaningless, so it takes the tool set and builds its own
+          # confinement around it. One list, so the VM and this devshell cannot
+          # drift. `jailPkgs` is deliberately not in here — those are the
+          # wrappers, not the tools.
+          dev-tools = pkgs.buildEnv {
+            name = "panopticon-dev-tools";
+            paths = projectPkgs;
+            ignoreCollisions = true;
+          };
         }
         // pkgs.lib.optionalAttrs isLinux jailPkgs;
 

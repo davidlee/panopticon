@@ -1,0 +1,135 @@
+# Implementation plan for SL-005 — the authored, durable phase plan.
+#
+# This is the single source of each phase's objective, criteria, verification,
+# and links. Runtime status lives separately under .doctrine/state/ (phase
+# tracking) — never record progress here. Hand-edit freely: the tool reads this
+# file but does not rewrite it.
+schema  = "doctrine.plan.overview"
+version = 1
+slice   = "SL-005"
+
+[specs]                          # empty in v1 — no spec/requirement registry yet
+primary       = []
+collaborators = []
+
+[requirements]
+targets      = []
+dependencies = []
+
+# One [[phase]] per ordered phase. Ids are PHASE-NN (zero-padded), immutable and
+# never reused once authored — edits append, they never renumber. Criterion ids
+# are local to their phase, bare, and equally immutable (.doctrine/glossary.md §
+# reference forms): EN-1 entry, EX-1 exit, and verification by mode —
+# VT-1 test (automated), VA-1 agent check, VH-1 human acceptance.
+
+# ---------------------------------------------------------------------------
+[[phase]]
+id        = "PHASE-01"
+name      = "Neutral model widen + protocol + pure projection"
+objective = """
+Land the DL-6 neutral-model widen and the pure/impure floor of the umbriel
+adapter. Widen `WindowRef.window_id` to `int | str | None` (compositor/model.py)
+with the matching `docs/schema.md` note — a type-only widen, SL-002/SL-003 suites
+stay green (behaviour-preservation). Build `compositor/umbriel/protocol.py` (impure
+shell: `resolve_socket()` env precedence, `frames()` connect+subscribe+json-per-line,
+bounded by connect_timeout, NO ack) and `compositor/umbriel/projection.py` (pure
+`UmbrielProjection`: snapshot-replace `apply` (INV-U1), `burst_complete`, two-tier
+`to_state` (D1/DL-4), `_locate` (label only from a resolved workspaces entry, output
+from the id PREFIX when unresolved, never the suffix as a label), `focus_coherent`,
+`_pid` non-positive→None with bool excluded (DL-9)). Green against both banked
+captures + hand-authored edges. Attempt the RV-005.3 live layer-surface capture if
+host access allows; else record the accepted limitation.
+"""
+entrance_criteria = [
+  { id = "EN-1", text = "Design SL-005 locked; ISS-001 resolved (shared compositor/diff.py::diff_state landed, window-identity precedence); SL-002/SL-003 suites green." },
+  { id = "EN-2", text = "Golden fixtures present under tests/fixtures/umbriel/ (capture-0, capture-1, PROVENANCE.md); PROVENANCE reconciled to DL-4 (done at design)." },
+]
+exit_criteria = [
+  { id = "EX-1", text = "WindowRef.window_id typed int|str|None; docs/schema.md window_id note updated; SL-002/SL-003 suites green UNCHANGED (type-only widen — the behaviour-preservation gate holds)." },
+  { id = "EX-2", text = "compositor/umbriel/protocol.py: resolve_socket() returns $UMBRIEL_SOCKET else derived $XDG_RUNTIME_DIR/umbriel-$WAYLAND_DISPLAY.sock; frames() connects, sends the subscribe request, yields one json.loads()/line, no ack, bounded by connect_timeout; deferred import (off the --help path)." },
+  { id = "EX-3", text = "compositor/umbriel/projection.py: apply total+pure snapshot-replace on windows/workspaces (INV-U1, unknown family/field inert); burst_complete = both seen once; to_state two-tier (Tier-1 unique active; Tier-2 focused-workspace's focused window); _locate label only from resolved entry, output from id prefix when unresolved, never suffix-as-label; focus_coherent False iff focus on a non-empty ws id absent from the map; _pid non-positive→None, type(p) is int excludes bool." },
+  { id = "EX-4", text = "RV-005.3 layer-surface gate discharged: a live capture is attempted (host access) to settle whether per-workspace `focused` persists on a layer surface; if inconclusive/skipped, the Tier-2 over-count is recorded as an accepted limitation in notes.md + docs/schema.md — not left silent." },
+]
+verification = [
+  { id = "VT-1", expects = "WindowRef accepts a str window_id and to_dict() round-trips it (DL-6 widen); the SL-002/SL-003 model contract stays green.", test_file = "tests/test_compositor_model.py", keywords = ["window_id", "WindowRef", "to_dict"], patterns = ["def test_.*window_id.*str"], waived = false },
+  { id = "VT-2", expects = "UmbrielProjection.apply replaces windows/workspaces on the matching event; burst_complete gates true only after both families seen (both orders); an unknown/extra family or field is inert (INV-U1), never raises.", test_file = "tests/test_compositor_umbriel_projection.py", keywords = ["UmbrielProjection", "burst_complete", "apply"], patterns = ["def test_"], waived = false },
+  { id = "VT-3", expects = "to_state two-tier focus: Tier-1 takes the unique active window; Tier-2 on active==0 (capture-0 frame 4) yields the focused-workspace's focused window (no flap); >1 active falls through (ASM-U1); genuine no-focus yields DesktopState(); focused scratchpad (workspace empty) yields workspace/output None (DL-3); transitive workspace-to-output join resolves.", test_file = "tests/test_compositor_umbriel_projection.py", keywords = ["to_state", "active", "DesktopState"], patterns = ["def test_.*(tier|active|focus)"], waived = false },
+  { id = "VT-4", expects = "_locate: a resolved workspace renders the DL-1 label (name if named else str(index)) NOT the id suffix (capture-0 L2: id DP-3:17 has index 2/name 2); a new-workspace join miss (windows-before-workspaces) sets focus_coherent False, does NOT fabricate a label from the suffix, and takes output from the id PREFIX.", test_file = "tests/test_compositor_umbriel_projection.py", keywords = ["_locate", "focus_coherent"], patterns = ["def test_.*(locate|coheren|label|suffix)"], waived = false },
+  { id = "VT-5", expects = "_pid normalises pid:-1 (capture-0 line 1, XWayland Spotify sentinel) to None, and pid True/False to None (bool excluded via type(p) is int) so no sentinel/bool reaches the neutral model (DL-9).", test_file = "tests/test_compositor_umbriel_projection.py", keywords = ["_pid", "pid"], patterns = ["def test_.*pid"], waived = false },
+  { id = "VT-6", expects = "resolve_socket() returns $UMBRIEL_SOCKET when set, else the derived path from $XDG_RUNTIME_DIR + $WAYLAND_DISPLAY; frames() over a fake unix socket sends the subscribe request and yields one dict per line with no ack assertion.", test_file = "tests/test_compositor_umbriel_protocol.py", keywords = ["resolve_socket", "frames"], patterns = ["def test_"], waived = false },
+  { id = "VA-1", expects = "The RV-005.3 layer-surface outcome is recorded: either a live capture banked with a definitive focused-persistence finding, or an explicit accepted-limitation note in notes.md + docs/schema.md.", waived = false },
+]
+specs        = []
+requirements = []
+
+# ---------------------------------------------------------------------------
+[[phase]]
+id        = "PHASE-02"
+name      = "Session + normalization + equivalence"
+objective = """
+Build `compositor/umbriel/session.py` (`UmbrielSession`/`UmbrielClient`) — the
+impure two-mode glue mirroring niri/session.py, over the PHASE-01 projection and
+the SHARED compositor/diff.py::diff_state (no per-adapter diff copy). Burst mode
+buffers apply() until burst_complete then emits one `snapshot` (INV-U2), bounded by
+a burst-completion timeout that RAISES → run_watcher disconnect (RV-005.5a). Live
+mode diffs to_state vs prior and emits the precedence-correct observation; a
+new-workspace windows-before-workspaces sequence triggers the coherence hold
+(withhold + fold, no baseline advance) until the workspaces entry lands → ONE
+precedence-correct observation (window_focus on identity change, workspace_focus on
+a same-window move), bounded by coherence_timeout that RAISES → disconnect/reburst
+(fail-safe; no workspace=None live observation escapes). Prove cross-compositor
+equivalence (umbriel arm) and capture-1 replay → derive_segments attribution.
+"""
+entrance_criteria = [
+  { id = "EN-1", text = "PHASE-01 complete: UmbrielProjection + protocol green against both captures + edges; DL-6 widen landed." },
+]
+exit_criteria = [
+  { id = "EX-1", text = "UmbrielSession is snapshot-first (INV-U2 — first yield is `snapshot` or nothing, may carry empty DesktopState()); a partial burst (one family then EOF) discards and yields nothing; a one-family-then-silent socket raises on the burst-completion timeout → run_watcher disconnect." },
+  { id = "EX-2", text = "Live coherence hold: a new-workspace windows-before-workspaces sequence emits a SINGLE precedence-correct observation with the resolved label (no None→label and no suffix→label flap); when coherence never lands within coherence_timeout the session RAISES → disconnect/reburst, emitting NO workspace=None live observation." },
+  { id = "EX-3", text = "A cross-workspace switch (capture-1) emits one `window_focus`; replayed through derive_segments the newly-focused app is attributed (DL-7/ISS-001, no mis-attribution, clean close). Title-only change → `window_title`; geometry-only snapshot → no emit; transient active==0 (capture-0 frame 4) → no emit (no flap)." },
+  { id = "EX-4", text = "Cross-compositor equivalence extended with the umbriel arm: the same focus-A→B-across-two-workspaces scenario through sway, niri AND umbriel — snapshot-first on all three, landing on B as `window_focus`, output = DRM connector names, matching workspace-transition shape; umbriel lands directly as window_focus (no intermediate). SL-002/SL-003 suites remain green." },
+]
+verification = [
+  { id = "VT-1", expects = "UmbrielSession snapshot-first (INV-U2): first observation is snapshot; partial burst (one family then EOF) yields nothing; one-family-then-silent socket raises on the burst-completion timeout (RV-005.5a).", test_file = "tests/test_compositor_umbriel_session.py", keywords = ["UmbrielSession", "snapshot", "timeout"], patterns = ["def test_.*(snapshot|burst|timeout)"], waived = false },
+  { id = "VT-2", expects = "Live coherence hold emits one precedence-correct observation once the workspaces entry lands (resolved label, no None-to-label or suffix-to-label flap); the coherence_timeout path raises to disconnect/reburst with NO workspace=None live emit.", test_file = "tests/test_compositor_umbriel_session.py", keywords = ["coheren", "window_focus", "workspace_focus"], patterns = ["def test_.*coheren"], waived = false },
+  { id = "VT-3", expects = "capture-1 cross-workspace switch emits one window_focus; the observation stream through derive_segments attributes the newly-focused app (DL-7/ISS-001), not the snapshot-time app.", test_file = "tests/test_compositor_umbriel_session.py", keywords = ["derive_segments", "window_focus"], patterns = ["def test_.*(attribut|derive|cross)"], waived = false },
+  { id = "VT-4", expects = "Title-only change emits window_title; geometry-only windows snapshot emits nothing; transient active==0 (capture-0 frame 4) emits nothing (no flap).", test_file = "tests/test_compositor_umbriel_session.py", keywords = ["window_title", "geometry"], patterns = ["def test_.*(title|geometry|no_emit|active)"], waived = false },
+  { id = "VT-5", expects = "The same focus A-to-B scenario through sway, niri AND umbriel: snapshot-first, landing window_focus on B, matching output connector names and workspace-transition shape (per-adapter intermediate names asserted, not forced equal).", test_file = "tests/test_compositor_equivalence.py", keywords = ["umbriel", "UmbrielSession"], patterns = ["def test_.*umbriel"], waived = false },
+]
+specs        = []
+requirements = []
+
+# ---------------------------------------------------------------------------
+[[phase]]
+id        = "PHASE-03"
+name      = "Live wire-up"
+objective = """
+Wire umbriel into live selection. Extend `compositor/detect.py` with
+`_umbriel_client()` and `_probe_umbriel` (resolve socket, connect, send subscribe,
+read one framed line under the bounded timeout, close) and a third `_auto_select`
+probe in the fixed total order niri > sway > umbriel (DL-8); the derived socket is
+eligible for auto ONLY when both $XDG_RUNTIME_DIR and $WAYLAND_DISPLAY are set (else
+auto skips umbriel — never fabricate `.../umbriel-None.sock`); an explicit
+`--compositor umbriel` with unresolvable env raises an actionable error. Add
+`"umbriel"` to the `--compositor` choices in desktop_watcher/__main__.py and the
+`umbriel` producer entry to docs/schema.md (RV-005.8 — now the code emits it). Full
+suite green + ruff clean; `--compositor auto` runs umbriel live end-to-end.
+"""
+entrance_criteria = [
+  { id = "EN-1", text = "PHASE-02 complete: UmbrielSession + equivalence + derive attribution green." },
+]
+exit_criteria = [
+  { id = "EX-1", text = "detect.py: select_client maps `umbriel` → _umbriel_client(); _probe_umbriel connect-validates (resolve, connect, subscribe, read one framed line bounded, close); _auto_select probes niri>sway>umbriel, first reachable wins; the derived socket is auto-eligible only when both env vars are set; explicit umbriel with unresolvable env raises an actionable error." },
+  { id = "EX-2", text = "desktop_watcher/__main__.py `--compositor` choices include \"umbriel\"." },
+  { id = "EX-3", text = "docs/schema.md lists `umbriel` as a producer alongside sway/niri; the window_id note (PHASE-01) and producer entry make the public contract match the emitted stream." },
+  { id = "EX-4", text = "Full suite green + ruff clean (just check); SL-002/SL-003 suites green unchanged (behaviour-preservation, save the two adjudicated exceptions: ISS-001 precedence + DL-6 widen, both already reconciled)." },
+]
+verification = [
+  { id = "VT-1", expects = "detect: umbriel explicit resolves to the umbriel client; auto reaches umbriel when only its socket connects; three-way tie resolves niri>sway>umbriel; derived socket ineligible for auto unless both env vars set; explicit umbriel with unresolvable env raises. Probe uses a fake socket, no live compositor.", test_file = "tests/test_compositor_detect.py", keywords = ["umbriel", "_probe_umbriel"], patterns = ["def test_.*umbriel"], waived = false },
+  { id = "VT-2", expects = "The argument parser accepts --compositor umbriel (choices include umbriel).", test_file = "tests/test_desktop_main.py", keywords = ["umbriel", "compositor"], patterns = ["umbriel"], waived = false },
+  { id = "VA-1", expects = "docs/schema.md producer documentation lists umbriel (agent-verified: the producer list and window_id type note match the emitted stream).", waived = false },
+  { id = "VA-2", expects = "just check passes: full suite green + ruff clean; SL-002/SL-003 suites green unchanged.", waived = false },
+  { id = "VH-1", expects = "Non-gating host acceptance: panopticon-desktop --compositor auto on the live umbriel host writes current/desktop.json with a real focused window.", waived = false },
+]
+specs        = []
+requirements = []

@@ -387,9 +387,91 @@ optionality).
 
 ## 10. Review Notes
 
-<!-- Adversarial-review ledger appended here (the SL-002/003/004 rhythm — a second
-     agent or codex mcp). Fixes integrate into §5–§9 above; findings recorded as
-     RV rows. -->
+### RV-005 — adversarial review (gpt-5.6-sol, 2026-09-21)
+
+Ledger from the codex/gpt-5.6-sol pass, each independently verified against code
++ fixtures. **Design is NOT ready for /plan** — one blocker + two scope-breaching
+majors need adjudication before revision. Status: `raised` (fixes pending decisions).
+
+- **RV-005.1 — BLOCKER — cross-workspace focus mis-attributes the app downstream.**
+  CONFIRMED end-to-end: replaying `capture-1`'s observation sequence through the real
+  `segmentizer/derive.py::derive_segments` attributes **every** segment to the
+  snapshot-time app (`com.mitchellh.ghostty`), though focus moved discord→emacs→…
+  Root cause: `_next_focus` `workspace_focus` branch (derive.py:87-98) **retains the
+  running app** and never reads the event's `app_id`; `diff_state` (niri/session.py:40)
+  gives `(workspace,output)` precedence, so a cross-workspace switch (which also
+  changes the window) emits `workspace_focus`, dropping the new app. **Sway escapes it**
+  (emits a *second* corrective `window_focus`); niri + umbriel coalesce to one event
+  and hit it — so this is a **shared latent defect niri already has**, not umbriel-only.
+  Validated fix: in `diff_state`, emit `window_focus` when the focused-window identity
+  changed (even if workspace also changed) — the deriver's window_focus branch rekeys
+  app+workspace fully; reserve `workspace_focus` for same-window/workspace-label-only
+  changes. Re-run through `derive_segments` confirms correct attribution + clean
+  empty-workspace close. **Scope breach:** the fix lives in the emission/derive layer
+  shared with niri (SL-005 declared model/niri untouched). → DECISION-1.
+- **RV-005.2 — MAJOR — new-workspace join miss (emission coherence).** CONFIRMED
+  (self-found too): a `windows` frame focusing a window whose `workspace` id is not yet
+  in the latest `workspaces` snapshot (new/unknown non-empty workspace, windows-before-
+  workspaces) → the join misses → `workspace`/`output`=`None` for one frame → a
+  spurious `workspace_focus` then a corrected one. `to_state` is pure but reads two
+  snapshots from different logical instants. Not in the captures. Fix (umbriel scope):
+  split the composite `"<output>:<index>"` id when the join misses (output from prefix,
+  index as workspace), OR withhold emission until the mapping lands with a bounded
+  timeout. Update DL-4/§5.2, drop the §5.2 "no ordering dependency" overclaim.
+- **RV-005.3 — MAJOR — DL-4 Tier-2 overclaims for unobserved focus modes.** VALID.
+  The design flags multi-output (OQ-2) + scratchpad as untested, but DL-4 prose asserts
+  Tier-2 "covers layer-surface, overview cases" with no capture. Gaps: multi-output
+  (>1 focused workspace → Tier-2 empties during `active==0` → a false segment-close);
+  layer/overview (unknown whether per-workspace `focused` persists — contradicts the
+  "genuine no-focus" claim at §5.5); a focused scratchpad with `active:false` → Tier-2
+  picks the tiled window; `>1 active` (multi-seat) policy unstated. Fix: capture these
+  live (host access available), OR state an explicit **single-seat** assumption, define
+  `>1 active` handling, and downgrade "covers" → "untested; documented fallback".
+- **RV-005.4 — MAJOR — umbriel window ids violate the neutral model's declared type.**
+  CONFIRMED: `model.py:28` declares `WindowRef.window_id: int | None`; every umbriel id
+  is an opaque hex **string** (`"927b2d7e…"`). §5.2 passes it straight to `WindowRef`.
+  Dataclass accepts it at runtime but the typed contract + `current/desktop.json` schema
+  break, invalidating "model unchanged". (Note: `window_id` is NOT in the focus key —
+  derive keys on app_id — so segment correctness is unaffected; the breach is the
+  contract/schema.) Options: widen `window_id` to `int | str | None` (touches SL-002
+  model + schema + docs) / canonicalize / drop to `None` for umbriel. → DECISION-2.
+- **RV-005.5 — MAJOR — burst gate can hang on a half-burst; reconnect announced early.**
+  (a) VALID: only connect + first read are `connect_timeout`-bounded; one family then a
+  silent-but-open socket waits forever for the second. Also latent in niri. Fix: a
+  bounded **burst-completion** timeout that raises (→ disconnect), distinct from the
+  per-read timeout. (b) `runner.py:113` emits `compositor_reconnected` + resets backoff
+  *before* iterating observations, and the niri/umbriel session connects lazily inside
+  the generator → "reconnected" can precede the actual connect. Pre-existing runner+niri
+  behaviour; note as a shared issue, likely out of SL-005 scope.
+- **RV-005.6 — MINOR — socket resolution + three-way tie policy underspecified.** VALID.
+  `$XDG_RUNTIME_DIR`/`$WAYLAND_DISPLAY` unset → a path containing `"None"`; need an
+  actionable error. `auto` derived-socket eligibility unstated. **§5.4 says the tie
+  policy is "stated in D5" — but DL-5 is the histogram decision (cross-ref bug); no
+  three-way order is actually specified.** Fix: lock a total order (e.g. niri > sway >
+  umbriel, or umbriel-preferred-when-live) and say whether `auto` probes the derived path.
+- **RV-005.7 — MINOR — `pid:-1` XWayland sentinel surfaced as a real pid.** VALID
+  (`capture-0` line 1, Spotify `pid:-1`). Fix: normalize non-positive pids to `None`
+  in the projection; fixture-driven test. Likely applies to niri too.
+- **RV-005.8 — MINOR — provenance + schema docs contradict the design.** VALID.
+  `tests/fixtures/umbriel/PROVENANCE.md` "Absent captures" still says workspace-switch
+  uncaptured + "workspace→window join" as the rule (pre-spike, contradicts DL-4 + the
+  banked `capture-1`). `docs/schema.md` lists only `sway|niri` producers → "docs
+  untouched" leaves the public contract false. Fix: reconcile provenance; add `umbriel`.
+
+**Confirmed sound:** the histogram path (DL-5) — `"DP-3:1"` → `workspace="emacs",
+output="DP-3"` → key `"DP-3/emacs"`; `histogram.py` needs no change. DL-2's ordering
+handling (workspaces-first, one-family-then-EOF) is safe.
+
+**Two decisions gate the revision** (both breach the "additive, model/niri untouched"
+boundary):
+- **DECISION-1 (RV-005.1):** where the app-attribution fix lands — (a) promote the
+  diff/emission logic to shared compositor code + fix once (touches done niri + its
+  behaviour-preservation suite, which may encode the bug); (b) fix umbriel's own clone
+  only + file niri separately (tight boundary, but duplicated logic + niri stays buggy —
+  violates no-parallel-implementation); (c) split the shared derive/diff correctness fix
+  into its own prerequisite slice that SL-005 `needs`.
+- **DECISION-2 (RV-005.4):** window-id type — widen the neutral `WindowRef.window_id`
+  to `int | str | None` (+ schema/docs) vs canonicalize vs drop to `None` for umbriel.
 
 ### D1 spike (2026-09-21) — the focus-model gate
 

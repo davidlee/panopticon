@@ -399,16 +399,26 @@ majors need adjudication before revision. Status: `raised` (fixes pending decisi
   snapshot-time app (`com.mitchellh.ghostty`), though focus moved discord→emacs→…
   Root cause: `_next_focus` `workspace_focus` branch (derive.py:87-98) **retains the
   running app** and never reads the event's `app_id`; `diff_state` (niri/session.py:40)
-  gives `(workspace,output)` precedence, so a cross-workspace switch (which also
-  changes the window) emits `workspace_focus`, dropping the new app. **Sway escapes it**
-  (emits a *second* corrective `window_focus`); niri + umbriel coalesce to one event
-  and hit it — so this is a **shared latent defect niri already has**, not umbriel-only.
-  Validated fix: in `diff_state`, emit `window_focus` when the focused-window identity
-  changed (even if workspace also changed) — the deriver's window_focus branch rekeys
-  app+workspace fully; reserve `workspace_focus` for same-window/workspace-label-only
-  changes. Re-run through `derive_segments` confirms correct attribution + clean
-  empty-workspace close. **Scope breach:** the fix lives in the emission/derive layer
-  shared with niri (SL-005 declared model/niri untouched). → DECISION-1.
+  gives `(workspace,output)` precedence, so a transition that changes *both* workspace
+  and window emits a single `workspace_focus`, dropping the new app.
+  **Granularity is the discriminator** (refined post-review): **sway** emits a
+  corrective `window_focus` after `workspace_focus` (two i3ipc events); **niri**
+  decomposes a switch into `WorkspaceActivated` (→ `workspace_focus`, empty intermediate)
+  then `WorkspaceActiveWindowChanged` (→ `window_focus`) — so niri's bug is **latent**
+  (bites only when switching to an already-populated workspace in one event);
+  **umbriel** delivers a full snapshot per event, so a cross-workspace switch is
+  **always** one collapsed `workspace_focus` with no corrective follow-up → always
+  mis-attributes. Validated fix: emit `window_focus` when the focused-window identity
+  changed (even under a simultaneous workspace/output change) — the deriver's
+  window_focus branch rekeys app+workspace fully and closes cleanly on window→None;
+  reserve `workspace_focus` for same-window workspace-label-only changes. Re-run through
+  `derive_segments` confirms correct attribution + clean empty-workspace close.
+  **RESOLUTION (DECISION-1, david):** tractable (~3 LOC + 3 test updates) → tracked as
+  **ISS-001** (`SL-005 needs ISS-001`); promote `diff_state` to a shared compositor
+  module, fix once for niri + umbriel (DRY), update the 3 niri/equivalence tests that
+  encode the old precedence (a deliberate, documented improvement — the behaviour-
+  preservation gate is reconciled, not silently broken). Worked as a prerequisite
+  before SL-005 planning.
 - **RV-005.2 — MAJOR — new-workspace join miss (emission coherence).** CONFIRMED
   (self-found too): a `windows` frame focusing a window whose `workspace` id is not yet
   in the latest `workspaces` snapshot (new/unknown non-empty workspace, windows-before-
@@ -433,8 +443,11 @@ majors need adjudication before revision. Status: `raised` (fixes pending decisi
   Dataclass accepts it at runtime but the typed contract + `current/desktop.json` schema
   break, invalidating "model unchanged". (Note: `window_id` is NOT in the focus key —
   derive keys on app_id — so segment correctness is unaffected; the breach is the
-  contract/schema.) Options: widen `window_id` to `int | str | None` (touches SL-002
-  model + schema + docs) / canonicalize / drop to `None` for umbriel. → DECISION-2.
+  contract/schema.) **RESOLUTION (DECISION-2, david): widen `WindowRef.window_id` to
+  `int | str | None`** (+ `docs/schema.md` + any identity annotations/tests). Honest,
+  low-risk (not in the focus key), future-proofs other string-id compositors. This is a
+  scoped, deliberate change to the SL-002-owned neutral model — folded into SL-005 (or
+  ISS-001's shared touch), not a non-goal violation left implicit.
 - **RV-005.5 — MAJOR — burst gate can hang on a half-burst; reconnect announced early.**
   (a) VALID: only connect + first read are `connect_timeout`-bounded; one family then a
   silent-but-open socket waits forever for the second. Also latent in niri. Fix: a
@@ -462,16 +475,20 @@ majors need adjudication before revision. Status: `raised` (fixes pending decisi
 output="DP-3"` → key `"DP-3/emacs"`; `histogram.py` needs no change. DL-2's ordering
 handling (workspaces-first, one-family-then-EOF) is safe.
 
-**Two decisions gate the revision** (both breach the "additive, model/niri untouched"
-boundary):
-- **DECISION-1 (RV-005.1):** where the app-attribution fix lands — (a) promote the
-  diff/emission logic to shared compositor code + fix once (touches done niri + its
-  behaviour-preservation suite, which may encode the bug); (b) fix umbriel's own clone
-  only + file niri separately (tight boundary, but duplicated logic + niri stays buggy —
-  violates no-parallel-implementation); (c) split the shared derive/diff correctness fix
-  into its own prerequisite slice that SL-005 `needs`.
-- **DECISION-2 (RV-005.4):** window-id type — widen the neutral `WindowRef.window_id`
-  to `int | str | None` (+ schema/docs) vs canonicalize vs drop to `None` for umbriel.
+**Both scope decisions RESOLVED (david, 2026-09-21):**
+- **DECISION-1 (RV-005.1):** shared `diff_state` precedence fix, tracked as **ISS-001**,
+  worked as a prerequisite (`SL-005 needs ISS-001`); promote to shared, fix niri +
+  umbriel once. See RV-005.1 resolution above.
+- **DECISION-2 (RV-005.4):** widen `WindowRef.window_id` to `int | str | None`. See
+  RV-005.4 resolution above.
+
+**Revision plan (next):** land ISS-001; then revise §5/§7/§9 to (a) reference the shared
+`diff_state`, (b) DECISION-2 widening, (c) DL-4 id-split fallback for the new-workspace
+join miss (RV-005.2) + single-seat assumption / `>1 active` policy (RV-005.3), (d)
+bounded burst-completion timeout (RV-005.5a), (e) socket-unset error + three-way tie
+order (RV-005.6), (f) `pid<=0 → None` (RV-005.7), (g) reconcile PROVENANCE + add
+`umbriel` to `docs/schema.md` (RV-005.8). RV-005.5b (runner reconnect ordering) noted
+as a shared pre-existing issue — separate backlog candidate, not SL-005.
 
 ### D1 spike (2026-09-21) — the focus-model gate
 

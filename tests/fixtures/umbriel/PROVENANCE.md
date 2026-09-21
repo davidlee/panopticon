@@ -10,7 +10,8 @@ build is the **wire-format provenance**, NOT a package dependency — record the
 
 | fixture | umbriel --version | contents |
 |---|---|---|
-| `capture-0.ndjson` | `<unrecorded — 2026-09-21 host>` | `subscribe windows workspaces` stream: line 1 = startup `windows` full snapshot, line 2 = `workspaces` full snapshot (the immediate subscribe burst), then `windows` events for within-workspace focus cycling, title mutation, a window open (`kitty`), and geometry moves. Confirms: immediate burst on subscribe, full-snapshot-per-event (no deltas), per-workspace `focused` (two `focused:true` windows at once), `output:index` workspace ids (`DP-3:1`), `output` = DRM connector (`DP-3`). |
+| `capture-0.ndjson` | `umbriel 0.1.0` | `subscribe windows workspaces` stream: line 1 = startup `windows` full snapshot, line 2 = `workspaces` full snapshot (the immediate subscribe burst), then `windows` events for within-workspace focus cycling, title mutation, a window open (`kitty`), and geometry moves. Confirms: immediate burst on subscribe, full-snapshot-per-event (no deltas), per-workspace `focused` (two `focused:true` windows at once), `output:index` workspace ids (`DP-3:1`), `output` = DRM connector (`DP-3`). **Frame 4 has `#active==0`** — the transient empty-`active` case the D1 spike hinges on. |
+| `capture-1.ndjson` | `umbriel 0.1.0` | D1 spike: cross-workspace focus bounce (`window-focus:<id>` between `DP-3:1` and `DP-3:17`). Shows the **`windows`-before-`workspaces` ordering** on every cross-workspace jump (frames 3→4, 5→6, 8→9, 10→11) — the reason a focused-workspace join lags one frame and the adapter derives focus from the window `active` flag instead. See `slice/005/notes.md` §D1 spike. |
 
 ## Capture protocol
 

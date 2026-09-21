@@ -158,6 +158,8 @@ class UmbrielProjection:
     def apply(self, event: dict) -> "UmbrielProjection": ...   # total, ignore-unknown
     @property
     def burst_complete(self) -> bool: return self.seen_windows and self.seen_workspaces
+    @property
+    def focus_coherent(self) -> bool: ...   # focus fully resolvable (RV-005.2); see §5.2
     def to_state(self) -> DesktopState: ...
 
 # session.py (impure glue)
@@ -191,41 +193,54 @@ aw = the unique w in windows where w.active            # None if 0 active
 if aw is None:
     fws = the unique ws in workspaces where ws.focused  # None if 0 or >1
     aw  = the unique w in windows where w.focused and w.workspace == fws.id  if fws else None
-# Derive:
+# Derive (pure, best-effort; the session decides emission timing — see coherence hold):
 if aw is None:  → DesktopState()                        # genuine no-focus
 ws  = workspaces_by_id.get(aw.workspace)   if aw.workspace else None
-label, output = _locate(aw.workspace, ws)               # join, with id-split fallback
+label, output = _locate(aw.workspace, ws)
 → DesktopState(
     window   = WindowRef(aw.id, aw.app_id, _pid(aw.pid), aw.title),   # id: str (DL-6)
     workspace= label,                                   # DL-1
     output   = output)
 
-# _pid — XWayland surfaces carry pid:-1 (capture-0 line 1, Spotify); a sentinel,
-#        not a real pid → normalise non-positive to None (RV-005.7 / DL-4).
-def _pid(p): return p if isinstance(p, int) and p > 0 else None
+# _pid — XWayland surfaces carry pid:-1 (capture-0 line 1, Spotify); a sentinel, not a
+#        real pid → normalise non-positive to None (RV-005.7 / DL-9). type-check excludes
+#        bool (a subclass of int) so a stray True never reads as pid 1.
+def _pid(p): return p if type(p) is int and p > 0 else None
 
-# _locate — the window→workspace→output join, with a fallback for the windows-
-#           before-workspaces frame where aw.workspace is not yet in the snapshot
-#           (RV-005.2). The workspace id is the composite "<output>:<index>"; when
-#           the join misses, split it rather than emit workspace/output=None for a
-#           frame (which would flap a spurious workspace_focus then correct it).
+# _locate — window→workspace→output. The workspace id is the composite
+#   "<output>:<opaque-id>" (e.g. "DP-3:17"); the SUFFIX is an internal id, NOT the
+#   display index — capture-0 L2: id "DP-3:17" has index 2 / name "2" (DL-1/ASM-U2). So
+#   the label comes ONLY from the resolved workspaces entry, never the suffix. The PREFIX
+#   is the output (DRM connector, no colons) and is reliable even before the entry lands.
 def _locate(ws_id, ws):
-    if ws is not None:
+    if ws is not None:                       # resolved: label from the entry (DL-1)
         return (ws.name if ws.named else str(ws.index)), ws.output
-    if ws_id and ":" in ws_id:              # composite id, mapping not yet landed
-        out, _, idx = ws_id.rpartition(":")
-        return idx, (out or None)           # index as label, prefix as output
-    return None, None                       # scratchpad ("") or unresolvable
+    if ws_id == "" or ws_id is None:         # scratchpad / no workspace
+        return None, None
+    return None, ws_id.split(":", 1)[0] or None   # UNRESOLVED (new ws, entry not yet in
+                                             # map): output=prefix; label unknown → None.
+                                             # focus_coherent is False here → session holds.
+
+# focus_coherent — is the current focus fully resolvable? The session withholds emission
+#   until it is (bounded — see §5.4 coherence hold). False iff a window is focused on a
+#   non-empty workspace id absent from the workspaces map (the windows-before-workspaces
+#   new-workspace case). True for no-focus, scratchpad (""), and resolved workspaces.
+@property
+def focus_coherent(self) -> bool: ...
 ```
 
 Rationale (the D1 spike, notes.md §D1): Tier 1 tracks the focused-window *identity*
 in-band on the `windows` event with **no cross-family ordering dependency for focus** —
 the spike proved a cross-workspace move emits `windows` *before* `workspaces`, so a
 focused-workspace-*primary* derivation would lag one frame on *which window* is focused
-(§7 DL-4). The workspace→output **label** join still reads the `workspaces` snapshot, so on
-that same lead frame the label/output can miss; `_locate`'s composite-id split (above)
-covers it so no spurious `workspace/output=None` frame escapes (RV-005.2). Tier 2 covers
-the only *focus* case Tier 1 can't: `active`
+(§7 DL-4). The workspace→output **label** join reads the `workspaces` map, which the
+projection *retains* between events — so a focus onto a **pre-existing** workspace (the
+whole `capture-1` bounce, and every ordinary cross-workspace move) resolves immediately;
+there is no miss. The join misses **only** for a genuinely *new* workspace whose `windows`
+event precedes its first `workspaces` event; the id suffix cannot supply its label
+(it is an opaque id, not the index), so the session **holds** the transition until the
+entry lands rather than fabricate one (§5.4 coherence hold, RV-005.2). Tier 2 covers the
+only *focus* case Tier 1 can't: `active`
 transiently empties to 0 mid-transition (`capture-0` frame 4) — the focused-workspace's
 focused window is still correct, so the fallback yields the same window and **no flap
 occurs**, purely, without prior-state. A **focused scratchpad window** (`workspace: ""`)
@@ -266,8 +281,19 @@ optionality).
     `run_watcher` turns it into a `compositor_disconnected` + backoff, rather than a
     wedged session. (The equivalent hang is latent in niri; the fix rides the shared
     session shape where practical, else is umbriel-local — noted for the niri backlog.)
-- **Live deltas → diff emission (D10, precedence per DL-7/ISS-001)**: in live mode,
-  after each event compute `to_state()` and hand `(prior, new)` to the shared
+- **Coherence hold (RV-005.2).** In live mode, after `apply(event)`, if
+  `proj.focus_coherent` is `False` — a window is focused on a non-empty workspace id not
+  yet in the workspaces map (a *new* workspace whose `windows` event led its `workspaces`
+  event) — the session **withholds**: it neither emits nor advances its `prior` baseline,
+  and folds the next event. The following `workspaces` frame lands the entry → coherent →
+  the accumulated change emits as a **single** `window_focus` with the correct label (not
+  a fabricated one, and no None→label flap). Bounded by a `coherence_timeout` (same
+  default as the burst deadline): if coherence never arrives, emit **best-effort** once
+  (output from the id prefix, `workspace=None`) and resume — fail-open, never wedge. The
+  common cross-workspace move (pre-existing target) is always coherent → no hold. This
+  generalises the burst gate's "don't emit an incoherent intermediate" to live mode.
+- **Live deltas → diff emission (D10, precedence per DL-7/ISS-001)**: once coherent, in
+  live mode compute `to_state()` and hand `(prior, new)` to the shared
   `compositor/diff.py::diff_state`, which names the observation by the highest-precedence
   changed field — a **focused-window-identity change (incl. focus→none) →
   `window_focus`**, else a same-window workspace/output change → `workspace_focus`, else
@@ -315,26 +341,44 @@ optionality).
   (one per seat), handled by the ASM-U1 policy above. Stated, not gating.
 - **ASM-U2 (CONFIRMED by capture)** — `Workspace.output` is the DRM connector name
   (`"DP-3"`), the same space as Sway/niri `output` (SPEC-001 D4). Workspace `id` is a
-  composite `"<output>:<index>"` (`"DP-3:1"`); we key `DesktopState.workspace` on the
-  *name/index* (DL-1), never the composite id, so `output` is not double-counted.
+  composite `"<output>:<opaque-id>"` — the suffix is an **internal id, NOT the display
+  index**: `capture-0` L2 has id `"DP-3:17"` with `index=2`, `name="2"`, and id `"DP-3:1"`
+  with `index=1`, `name="emacs"`. So `DesktopState.workspace` is keyed on the entry's
+  *name/index* (DL-1), never the id suffix; the id **prefix** is a reliable `output`
+  source (connectors carry no colon) used only as the coherence-hold fallback. `output`
+  is thus never double-counted, and the suffix never leaks as a label.
 - **Edge — transient `active == 0`** (`capture-0` frame 4): Tier-2 fallback yields the
   focused-workspace's focused window → no flap. **Genuine no-focus** (last window
   closed): focused workspace has no focused window → `DesktopState()` with `window=None`
   → correct. **Layer-surface / overview focus (UNTESTED, RV-005.3):** it is *unconfirmed*
   whether per-workspace `focused` persists on the last tiled window while focus rests on
-  a layer surface. If it persists, Tier-2 keeps attributing to that tiled window (a
-  documented small over-count) rather than closing; if it clears, we get the correct
-  `DesktopState()`. PHASE-01 captures this live (host access) to settle it; the fallback
-  either way is bounded and non-crashing.
+  a layer surface. If it persists, Tier-2 keeps attributing to that tiled window rather
+  than closing — **an over-count bounded only by how long focus rests on the layer
+  surface** (seconds for a launcher/overview; unbounded for a persistent layer shell, so
+  *not* generally bounded — stated honestly, not as "small"). If it clears, we get the
+  correct `DesktopState()`. **Phase gate (RV-005.3):** PHASE-01 attempts a live
+  layer-surface capture (host access) to settle whether `focused` persists; **if that
+  capture is inconclusive or skipped, the over-count stands as an accepted limitation of
+  the umbriel adapter** (documented in schema/notes), not a silent gap — no design
+  invariant depends on it.
+- **Edge — scratchpad with `active:false`** (RV-005.3): a scratchpad window
+  (`workspace: ""`) that is not the seat-active window is not picked by Tier-1; Tier-2
+  joins on the focused *workspace*, and a scratchpad has no workspace, so Tier-2 does not
+  select it either → it never spuriously becomes focus. A scratchpad window that **is**
+  seat-active surfaces via Tier-1 with `workspace/output=None` (DL-3). Untested live;
+  PHASE-01 hand-authors both from the capture vocabulary.
 - **Edge — `pid` sentinel** (`capture-0` line 1, Spotify `pid:-1`): XWayland surfaces
   carry `pid:-1`; `_pid` normalises non-positive → `None` so no `-1` reaches the schema
   (RV-005.7). Fixture-driven; likely applies to niri too (noted for its backlog).
-- **Edge — join miss (windows-before-workspaces)** (RV-005.2): a focused window whose
-  composite `workspace` id is not yet in the latest `workspaces` snapshot → `_locate`
-  splits the id (`"<output>:<index>"`) so the frame still carries an output + an index
-  label, never a spurious `workspace/output=None` that would flap `workspace_focus`.
-  Hand-authored from the `capture-1` ordering; the next `workspaces` snapshot refines the
-  label (index → name if named).
+- **Edge — join miss (new workspace, windows-before-workspaces)** (RV-005.2): the
+  projection retains the last workspaces snapshot, so a focus onto any **pre-existing**
+  workspace resolves immediately (no miss — the entire `capture-1` bounce). The miss
+  arises **only** for a *genuinely new* workspace whose `windows` event precedes its first
+  `workspaces` event; the id suffix is opaque (not the index) so no label can be
+  fabricated. `focus_coherent` is `False` → the **session coherence-holds** (§5.4) until
+  the `workspaces` entry lands, then emits one clean `window_focus`. Deadline fail-open =
+  output-from-prefix + `workspace=None`. Hand-authored (unobserved in the captures, which
+  only exercise pre-existing targets).
 - **Edge — focused scratchpad window** (`workspace: ""`): `WindowRef` surfaced,
   `workspace`/`output` = `None` (DL-3). Untested live (no capture of focusing a
   scratchpad); PHASE-01 hand-authors it.
@@ -473,15 +517,20 @@ optionality).
   yields the focused-workspace focused window (driven from `capture-0` frame 4);
   `>1 active` → no Tier-1 pick, falls through (ASM-U1 policy); genuine no-focus →
   `DesktopState()`; scratchpad focus → `workspace/output=None`; transitive
-  workspace→output join; **join miss → composite-id split** yields index-label + output
-  (DL-4/RV-005.2, from the `capture-1` ordering); **`pid:-1` → `None`** (DL-9, from
-  `capture-0` line 1); DL-1 name/index rendering.
+  workspace→output join; **new-workspace join miss → `focus_coherent` False** (label not
+  fabricated from the id suffix), with the id **prefix** as the output fallback
+  (DL-4/RV-005.2); **`pid:-1` → `None`**, and `pid:True`/`False` → `None` (DL-9, bool
+  excluded, from `capture-0` line 1); DL-1 name/index rendering (id suffix ≠ index —
+  `capture-0` L2).
 - **Session tests** (`test_compositor_umbriel_session.py`): snapshot-first (INV-U2),
   partial-burst discard (D2), **burst-completion timeout raises** on a one-family-then-
   silent socket (RV-005.5a), **cross-workspace switch emits one `window_focus`** with the
   new app attributed (from `capture-1`; DL-7/ISS-001 — asserting no one-frame flap and no
-  app mis-attribution despite windows-before-workspaces), title-diff suppression (D10),
-  geometry-only → no emit, transient `active==0` emits nothing (no flap, from `capture-0`).
+  app mis-attribution despite windows-before-workspaces), **coherence hold — a new-
+  workspace windows-before-workspaces sequence emits a single `window_focus` with the
+  resolved label (no None→label or suffix→label flap), and the deadline fail-open path**
+  (RV-005.2), title-diff suppression (D10), geometry-only → no emit, transient `active==0`
+  emits nothing (no flap, from `capture-0`).
   (The shared `diff_state` + deriver attribution itself is regression-locked in
   `test_diff_derive_attribution.py`, landed with ISS-001.)
 - **Detection tests** (`test_compositor_detect.py`, extended): `umbriel` explicit;
@@ -509,9 +558,12 @@ optionality).
 ### RV-005 — adversarial review (gpt-5.6-sol, 2026-09-21)
 
 Ledger from the codex/gpt-5.6-sol pass, each independently verified against code
-+ fixtures. **Status: all eight items dispositioned; the blocker (ISS-001) is LANDED
-and the design revised (§5/§7/§9) to fold in every finding.** Ready for a confirming
-re-review, then `/plan`. Per-item disposition in "Revision — applied" below.
++ fixtures. **Status: blocker (ISS-001) LANDED; design revised twice.** A confirming
+re-review (gpt-5.6-sol, 2026-09-21, second pass) verified RV-005.1/.4/.6/.7/.8 RESOLVED,
+but caught that the **first** RV-005.2 fix rested on a false premise (it read the
+composite-id suffix as the display index — `capture-0` L2 disproves it: id `"DP-3:17"`
+has `index=2`). **Second revision (below) replaces that with a session coherence hold**
+and tightens RV-005.3/.5b wording. Per-item disposition in "Revision — applied".
 
 - **RV-005.1 — BLOCKER — cross-workspace focus mis-attributes the app downstream.**
   CONFIRMED end-to-end: replaying `capture-1`'s observation sequence through the real
@@ -544,10 +596,21 @@ re-review, then `/plan`. Per-item disposition in "Revision — applied" below.
   in the latest `workspaces` snapshot (new/unknown non-empty workspace, windows-before-
   workspaces) → the join misses → `workspace`/`output`=`None` for one frame → a
   spurious `workspace_focus` then a corrected one. `to_state` is pure but reads two
-  snapshots from different logical instants. Not in the captures. Fix (umbriel scope):
-  split the composite `"<output>:<index>"` id when the join misses (output from prefix,
-  index as workspace), OR withhold emission until the mapping lands with a bounded
-  timeout. Update DL-4/§5.2, drop the §5.2 "no ordering dependency" overclaim.
+  snapshots from different logical instants. Not in the captures.
+  **First fix REJECTED (re-review):** splitting `"<output>:<index>"` for an index label
+  was based on a false premise — the id suffix is an **opaque internal id, not the display
+  index** (`capture-0` L2: id `"DP-3:17"` → `index=2`/`name="2"`; `"DP-3:1"` →
+  `name="emacs"`). Returning the suffix as the label is both a wrong value and a guaranteed
+  flap (label refines suffix→real-name next frame → `workspace_focus` → segment split) —
+  the exact defect it claimed to fix.
+  **RESOLUTION (second revision):** the projection **retains** the last workspaces
+  snapshot, so pre-existing targets never miss (the whole `capture-1` bounce is coherent);
+  the miss is confined to a *genuinely new* workspace. For that, a **session coherence
+  hold** (§5.4, `focus_coherent`): `to_state` never fabricates a label (output from the
+  reliable id prefix, `workspace=None` when unresolved); the session withholds the
+  transition until the `workspaces` entry lands → one clean `window_focus`; bounded by a
+  `coherence_timeout` that fails open. Also scopes the §5.2 "no ordering dependency" claim
+  to focus-*identity*.
 - **RV-005.3 — MAJOR — DL-4 Tier-2 overclaims for unobserved focus modes.** VALID.
   The design flags multi-output (OQ-2) + scratchpad as untested, but DL-4 prose asserts
   Tier-2 "covers layer-surface, overview cases" with no capture. Gaps: multi-output
@@ -602,23 +665,36 @@ handling (workspaces-first, one-family-then-EOF) is safe.
 - **DECISION-2 (RV-005.4):** widen `WindowRef.window_id` to `int | str | None`. See
   RV-005.4 resolution above.
 
-**Revision — applied (2026-09-21).** Per-item disposition:
+**Revision — applied (2026-09-21; second revision after the confirming re-review).**
+Per-item disposition:
 - **RV-005.1** — LANDED as **ISS-001** (commits c0ab29a/365e4f3, status `resolved·fixed`).
   Shared `compositor/diff.py::diff_state`, window-identity-wins precedence; niri + umbriel
-  share it. Design: DL-7, §5.1, §5.4 emission rewrite.
-- **RV-005.2** (join miss) — `_locate` composite-id split (§5.2), §5.5 join-miss edge,
-  DL-4 scoping. The §5.2 "no ordering dependency" overclaim scoped to focus-identity only.
+  share it. Design: DL-7, §5.1, §5.4 emission rewrite. **Re-review: RESOLVED.**
+- **RV-005.2** (join miss) — **first fix (id-split) REJECTED by the re-review** (false
+  premise: suffix ≠ index). **Second fix:** session **coherence hold** — `focus_coherent`
+  + withhold-until-resolved with a fail-open `coherence_timeout`; `to_state` never
+  fabricates a label, output from the reliable id prefix (§5.2/§5.4/§5.5, ASM-U2 corrected).
+  §5.2 "no ordering dependency" scoped to focus-identity.
 - **RV-005.3** (Tier-2 overclaim) — DL-4 + §5.5 downgraded layer/overview to *untested*;
-  **ASM-U3 single-seat** + **`>1 active` policy** (ASM-U1) added; PHASE-01 to capture.
+  **ASM-U3 single-seat** + **`>1 active` policy** (ASM-U1) added; **scratchpad
+  `active:false`** edge settled (neither tier picks it); layer-surface over-count restated
+  honestly as **not generally bounded**, with an explicit **PHASE-01 capture-or-accept
+  phase gate** (re-review PARTIAL → addressed).
 - **RV-005.4** — DECISION-2 → **DL-6** widen `WindowRef.window_id` to `int|str|None`
   (executed PHASE-01 with `docs/schema.md` + tests; `diff._identity` already typed for it).
 - **RV-005.5a** (burst hang) — bounded **burst-completion timeout** (§5.4, DL-8-adjacent);
-  session test added (§9). **RV-005.5b** (runner announces `compositor_reconnected` before
-  the lazy connect) — pre-existing shared runner+niri behaviour, **BL-candidate**, not
-  SL-005 (see below).
+  session test added (§9). **Re-review: RESOLVED.** **RV-005.5b** (runner announces
+  `compositor_reconnected` + resets exponential backoff *before* the lazy connect → false
+  reconnects and a backoff that resets to the initial delay on repeated connect failures)
+  — **explicitly DEFERRED, not resolved**: a pre-existing shared runner+niri concern,
+  scoped out of SL-005 as a backlog candidate (below). Re-review flagged that "BL-candidate"
+  is a disposition, not a fix — acknowledged as such here.
 - **RV-005.6** — **DL-8** (probe order `niri>sway>umbriel`; derived socket needs both env
   vars; explicit-umbriel unresolvable-env error). Fixes the dead "stated in D5" cross-ref.
-- **RV-005.7** — **DL-9** non-positive `pid → None`; §5.2 `_pid`, §5.5 edge, §9 test.
+  **Re-review: RESOLVED.**
+- **RV-005.7** — **DL-9** non-positive `pid → None`, **`type(p) is int`** excluding `bool`
+  (re-review minor: `isinstance` would accept `True` as pid 1); §5.2 `_pid`, §5.5 edge,
+  §9 test. **Re-review: RESOLVED.**
 - **RV-005.8** — PROVENANCE.md "Absent captures" **reconciled now** to DL-4 + the banked
   `capture-1` (the fixtures exist, so the stale focus-model claim was actively wrong).
   `docs/schema.md` is **deferred to execution** on purpose: the `window_id` type note
@@ -652,13 +728,16 @@ the design→plan fixtures.
    `WindowRef.window_id` → `int|str|None` in `compositor/model.py` + the `window_id`
    type note in `docs/schema.md` (SL-002/SL-003 suites stay green — a type-only widen).
    `umbriel/protocol.py` (socket resolve + subscribe framing) and `umbriel/projection.py`
-   (snapshot replace + two-tier `to_state`, `_locate` id-split, `_pid` normalisation).
-   Green against both captures + hand-authored edges (scratchpad focus, partial burst,
-   join miss, `pid:-1`).
+   (snapshot replace + two-tier `to_state`, `_locate` output-from-prefix / no-fabricated-
+   label, `focus_coherent`, `_pid` normalisation). Green against both captures +
+   hand-authored edges (scratchpad focus/active, partial burst, new-workspace join miss,
+   `pid:-1`). If host access allows, attempt a live layer-surface capture (RV-005.3 gate);
+   else record the accepted limitation.
 2. **PHASE-02 — Session + normalization + equivalence.** `umbriel/session.py` (burst-gate
-   + **burst-completion timeout**, diff emission via the shared `diff_state`),
-   snapshot-first stream, cross-compositor equivalence (umbriel arm), literal `capture-1`
-   replay → observations → `derive_segments` attribution.
+   + **burst-completion timeout** + **live coherence hold** with `coherence_timeout`, diff
+   emission via the shared `diff_state`), snapshot-first stream, cross-compositor
+   equivalence (umbriel arm), literal `capture-1` replay → observations →
+   `derive_segments` attribution.
 3. **PHASE-03 — Live wire-up.** `detect.py` three-way probe (DL-8 order + derived-socket
    eligibility) + `--compositor` choices + the `umbriel` producer entry in
    `docs/schema.md`. `--compositor auto` runs umbriel live end-to-end.

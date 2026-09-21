@@ -48,6 +48,11 @@ focus rule) was **reversed by the spike** and these captures:
   bounce in `capture-1` exercises the `workspaces`-event firing.
 
 Edge scenarios the captures cannot force on demand (partial burst, burst-completion
-timeout, reconnect, scratchpad focus, geometry-only-no-emit, layer-surface focus)
-are hand-authored in PHASE-01/02 from this vocabulary plus the design's
-event→mutation table (as SL-003 did).
+timeout, live coherence hold on a new-workspace windows-before-workspaces sequence,
+reconnect, scratchpad focus/active, geometry-only-no-emit) are hand-authored in
+PHASE-01/02 from this vocabulary plus the design's event→mutation table (as SL-003
+did). **Layer-surface / overview focus** is the one edge PHASE-01 tries to capture
+**live** (host access) — to settle whether per-window `focused` persists on the last
+tiled window while focus rests on a layer surface (design §5.5 / RV-005.3); if that
+capture is inconclusive or skipped, the resulting Tier-2 over-count stands as an
+accepted, documented limitation.

@@ -30,12 +30,24 @@ Unlike niri there is **no ack line** — the stream opens directly with the
 `{"event":"<family>","data":[…]}` object; identical consecutive payloads are
 coalesced by umbriel.
 
-## Absent captures (resolve at SL-005 /design)
+## Focus model — settled by the D1 spike (see `slice/005/notes.md` §D1, design DL-4)
 
-- **Workspace switch** not captured — confirm it fires a `workspaces` event (the
-  focused-workspace derivation depends on it). Window-focus-within-a-workspace
-  fires a `windows` event, seen here.
-- **`active` vs `focused` window-flag semantics** — `active` is absent in some
-  frames; the projection uses the focused-workspace→focused-window join, not
-  `active`. PHASE-02 session tests hand-author edge scenarios from this capture's
-  vocabulary plus the design's event→mutation table (as SL-003 did).
+The pre-capture guess (a focused-workspace→focused-window join as the *primary*
+focus rule) was **reversed by the spike** and these captures:
+
+- **`active` is the seat keyboard focus** (0-or-1 globally, verified never >1) and
+  updates in-band on the `windows` event — it is the **primary** focus signal
+  (Tier 1). `focused` is *per-workspace* (multiple true at once), not a global
+  signal. Its transient empties (`capture-0` frame 4, `#active==0`) are covered by
+  a pure Tier-2 fallback (focused window on the focused workspace), no prior state.
+- **Cross-workspace switches DO fire a `workspaces` event**, but `capture-1` shows
+  the `windows` event *precedes* it every time — so the workspace→output *label*
+  join (not the focus decision) can lag one frame; the projection splits the
+  composite `"<output>:<index>"` workspace id to cover that frame (design §5.2
+  `_locate`). A pure workspace-switch with no focus change was not isolated, but the
+  bounce in `capture-1` exercises the `workspaces`-event firing.
+
+Edge scenarios the captures cannot force on demand (partial burst, burst-completion
+timeout, reconnect, scratchpad focus, geometry-only-no-emit, layer-surface focus)
+are hand-authored in PHASE-01/02 from this vocabulary plus the design's
+event→mutation table (as SL-003 did).

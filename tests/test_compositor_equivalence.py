@@ -1,17 +1,28 @@
 """Cross-compositor equivalence (SL-003 PHASE-02, VT-4, F-6).
 
 The same user action — *switch to workspace "2" on output DP-2, landing focus on
-window B* — driven through the Sway and Niri sessions must yield the same neutral
-event-name sequence, connector-name outputs on both, and the same
-workspace-transition shape. This is the contract the deriver depends on (INV-N3):
-two producers, one neutral vocabulary.
+window B* — driven through the Sway and Niri sessions must land equivalently:
+snapshot-first, connector-name outputs on both, the same workspace-transition
+shape, and the same final focus (window B on DP-2). This is the contract the
+deriver depends on (INV-N3): two producers, one neutral vocabulary.
 
-Granularity note (design D-P02-1): a *single* cross-output focus collapses to one
-``workspace_focus`` in niri but one ``window_focus`` in sway (sway reads location
-from the ancestry index). The scenario here is the two-step transition both
-adapters decompose identically — ``[snapshot, workspace_focus, window_focus]``.
-It does not assert the intermediate ``workspace_focus`` window (niri carries None,
-sway keeps the prior window — a real, documented adapter difference).
+Intermediate-frame divergence (real, documented adapter difference). The two
+adapters model the transition's middle frame differently, and after ISS-001
+(``diff_state`` surfaces a focused-window-identity change as ``window_focus``
+even under a simultaneous workspace change) that difference shows in the event
+*name*, not just the window field:
+
+* **niri** decomposes the switch through the empty target workspace, so the
+  intermediate frame has *no* focused window → ``window_focus`` (window=None, a
+  clean defocus the deriver closes on).
+* **sway** keeps the prior window A visible while the workspace refocuses →
+  ``workspace_focus`` (same window, new location), then focuses B →
+  ``window_focus``.
+
+So the intermediate name legitimately differs (``window_focus`` vs
+``workspace_focus``); what must agree is the landing. Sway's retained-A
+intermediate leaves a transient A-on-ws2 in the derived stream — a pre-existing
+sway-adapter artifact, orthogonal to ISS-001 (see the slice notes).
 """
 
 from __future__ import annotations
@@ -82,14 +93,18 @@ def _sway_session() -> SwaySession:
     return SwaySession(_events_from(events), _get_tree_returning(before, after))
 
 
-async def test_niri_and_sway_agree_on_the_cross_output_switch():
+async def test_niri_and_sway_cross_output_switch_land_equivalently():
     niri = await _collect(_niri_session())
     sway = await _collect(_sway_session())
 
-    # 1. equal neutral event-name sequence, snapshot-first on both
-    names = ["snapshot", "workspace_focus", "window_focus"]
-    assert [o.event for o in niri] == names
-    assert [o.event for o in sway] == names
+    # 1. snapshot-first on both; same landing event (focus B via window_focus)
+    assert niri[0].event == sway[0].event == "snapshot"
+    assert niri[-1].event == sway[-1].event == "window_focus"
+
+    # 1b. honest per-adapter sequences — the intermediate name differs by how each
+    #     models the middle frame (ISS-001): niri nulls the window, sway keeps A.
+    assert [o.event for o in niri] == ["snapshot", "window_focus", "window_focus"]
+    assert [o.event for o in sway] == ["snapshot", "workspace_focus", "window_focus"]
 
     # 2. output = DRM connector names on both, landing on DP-2
     assert niri[0].state.output == sway[0].state.output == "DP-3"

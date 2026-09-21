@@ -8,7 +8,8 @@ an empty ``DesktopState`` is a valid snapshot, not a withheld one). In *live mod
 it diffs ``to_state`` after each event and emits the highest-precedence changed
 field (D10). Overview is inert by construction — the projection ignores
 ``WindowFocusChanged`` / ``OverviewOpenedOrClosed`` (DL-6), so a gesture moves no
-tracked state and :func:`diff_state` returns ``None``.
+tracked state and :func:`diff_state` returns ``None``. ``diff_state`` and its
+precedence live in :mod:`panopticon.compositor.diff`, shared with umbriel.
 
 :class:`NiriClient` names ``producer="niri"`` and hands ``run_watcher`` a session
 over ``frames(sock_path)`` — the only impurity, mirroring ``I3ipcSwayClient``.
@@ -20,37 +21,14 @@ from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from typing import Any
 
-from panopticon.compositor.model import DesktopObservation, DesktopState, WindowRef
+from panopticon.compositor.diff import compact, diff_state
+from panopticon.compositor.model import DesktopObservation, DesktopState
 from panopticon.compositor.niri.projection import NiriProjection, event_variant
 from panopticon.compositor.niri.protocol import frames
 
+__all__ = ["NiriClient", "NiriSession", "diff_state"]
+
 _FULL_STATE = frozenset({"WindowsChanged", "WorkspacesChanged"})
-
-
-def diff_state(prior: DesktopState, new: DesktopState) -> DesktopObservation | None:
-    """The neutral observation for a state transition, or ``None`` if unchanged.
-
-    Precedence (D10): workspace/output change -> ``workspace_focus``; else a change
-    of focused-window identity -> ``window_focus``; else a title-only change ->
-    ``window_title``. ``fields`` carry the full new state; the deriver rekeys from
-    ``state`` (INV-N3 is about event *names*)."""
-    if new == prior:
-        return None
-    fields = _compact(new.to_dict())
-    if (new.workspace, new.output) != (prior.workspace, prior.output):
-        return DesktopObservation("workspace_focus", fields, new)
-    if _identity(new.window) != _identity(prior.window):
-        return DesktopObservation("window_focus", fields, new)
-    return DesktopObservation("window_title", fields, new)
-
-
-def _identity(window: WindowRef | None) -> tuple[int | None, str | None, int | None]:
-    """A window's identity sans title — title changes are their own event."""
-    return (window.window_id, window.app_id, window.pid) if window else (None, None, None)
-
-
-def _compact(d: dict[str, Any]) -> dict[str, Any]:
-    return {k: v for k, v in d.items() if v is not None}
 
 
 class NiriSession:
@@ -72,7 +50,7 @@ class NiriSession:
                     continue
                 state = proj.to_state()
                 snapshotted = True
-                yield DesktopObservation("snapshot", _compact(state.to_dict()), state)
+                yield DesktopObservation("snapshot", compact(state.to_dict()), state)
                 continue
             new_state = proj.to_state()
             obs = diff_state(state, new_state)

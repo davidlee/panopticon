@@ -66,9 +66,19 @@ def test_diff_state_title_only_change_is_window_title():
     assert diff_state(a, b).event == "window_title"
 
 
-def test_diff_state_precedence_workspace_beats_window_and_title():
+def test_diff_state_precedence_window_identity_beats_workspace_and_title():
+    # ISS-001: a focused-window-identity change wins even under a simultaneous
+    # workspace/output change, so the deriver rekeys the new app (not the old one).
     a = DesktopState(WindowRef(1, "a", 2, "t"), "dev", "DP-3")
     b = DesktopState(WindowRef(9, "z", 3, "u"), "mail", "DP-2")  # every field changed
+    assert diff_state(a, b).event == "window_focus"
+
+
+def test_diff_state_same_window_moving_workspace_is_workspace_focus():
+    # The focused window keeps identity but its workspace/output label changes
+    # (carried to another workspace) → a location relabel, not a refocus.
+    a = DesktopState(WindowRef(1, "a", 2, "t"), "dev", "DP-3")
+    b = DesktopState(WindowRef(1, "a", 2, "t"), "mail", "DP-2")
     assert diff_state(a, b).event == "workspace_focus"
 
 
@@ -144,7 +154,10 @@ async def test_overview_gesture_emits_nothing():
     assert [o.event for o in obs] == ["snapshot"]
 
 
-async def test_switch_to_empty_workspace_emits_one_workspace_focus_window_none():
+async def test_switch_to_empty_workspace_emits_one_window_focus_window_none():
+    # ISS-001: focus leaving to an empty workspace nulls the window — an identity
+    # change — so it is window_focus (which the deriver reads as a defocus, closing
+    # the segment) rather than workspace_focus (which would park the old app there).
     frames = [
         workspaces_changed(
             _FOCUSED_WS,
@@ -154,7 +167,7 @@ async def test_switch_to_empty_workspace_emits_one_workspace_focus_window_none()
         {"WorkspaceActivated": {"id": 5, "focused": True}},
     ]
     obs = await _collect(NiriSession(_frames_from(frames)))
-    assert [o.event for o in obs] == ["snapshot", "workspace_focus"]
+    assert [o.event for o in obs] == ["snapshot", "window_focus"]
     wf = obs[1]
     assert wf.state.window is None
     assert wf.state.workspace == "mail"

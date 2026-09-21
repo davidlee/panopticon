@@ -79,7 +79,47 @@ green unchanged.
 - Full suite green; the three updated niri/equivalence assertions reflect corrected
   (improved) behaviour, documented as a fix, not a regression.
 
+## Resolution (fixed — commit c0ab29a)
+
+Precedence fix landed as sketched. `diff_state` (+ `_identity`, `compact`)
+promoted out of `niri/session.py` into shared `panopticon/compositor/diff.py`;
+niri re-exports `diff_state` for its callers. A focused-window-identity change
+(including focus leaving to no window) now wins → `window_focus`; only a
+same-window location change is `workspace_focus`.
+
+Three tests updated to the corrected (improved) behaviour:
+- `test_diff_state_precedence_window_identity_beats_workspace_and_title` (renamed;
+  now asserts `window_focus`) + a new sibling for the same-window-moves-workspace
+  case that stays `workspace_focus`.
+- `test_switch_to_empty_workspace_emits_one_window_focus_window_none` (renamed;
+  the empty-workspace switch is now `window_focus` with window=None, which the
+  deriver closes on instead of parking the old app there).
+- `test_compositor_equivalence` — the intermediate event name now legitimately
+  diverges (niri `window_focus`, sway `workspace_focus`) because the adapters
+  model the middle frame differently; the test asserts the equivalence that holds
+  (snapshot-first, output names, workspace shape, final landing) and documents the
+  divergence.
+
+**Regression:** `tests/test_diff_derive_attribution.py` drives the umbriel
+`capture-1` discord↔emacs cross-workspace bounce through `diff_state` +
+`derive_segments` and asserts per-workspace app attribution (discord/emacs
+alternating, not all-discord), plus the defocus-closes case.
+
+**Faithful deviation from the acceptance wording.** The regression is built from
+hand-authored `DesktopState`s that mirror `capture-1`, **not** a literal replay of
+the `capture-1.ndjson` bytes — the umbriel projection that turns those bytes into
+observations does not exist yet (SL-005 PHASE-01/02). This proves the *shared*
+diff+deriver contract ISS-001 actually fixes; the literal-capture replay is a
+natural SL-005 PHASE-02 test and is recorded there as a follow-up.
+
+**Separate, pre-existing (not fixed here):** the sway adapter reports the prior
+window while a workspace refocuses, leaving a transient A-on-ws2 micro-segment in
+the derived stream on a two-step cross-output switch. Orthogonal to this defect
+(sway keeps window identity, so its emission is byte-identical before/after);
+flagged in the equivalence-test docstring and the SL-005 notes as its own concern.
+
 ## Links
 
 - Blocks: SL-005 (`references`/`needs` — see the slice).
 - Origin: SL-005 `design.md` §10 RV-005.1.
+- Fix: commit c0ab29a; bookkeeping 365e4f3.

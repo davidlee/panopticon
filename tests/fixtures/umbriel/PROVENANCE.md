@@ -10,7 +10,7 @@ build is the **wire-format provenance**, NOT a package dependency — record the
 
 | fixture | umbriel --version | contents |
 |---|---|---|
-| `capture-0.ndjson` | `umbriel 0.1.0` | `subscribe windows workspaces` stream: line 1 = startup `windows` full snapshot, line 2 = `workspaces` full snapshot (the immediate subscribe burst), then `windows` events for within-workspace focus cycling, title mutation, a window open (`kitty`), and geometry moves. Confirms: immediate burst on subscribe, full-snapshot-per-event (no deltas), per-workspace `focused` (two `focused:true` windows at once), `output:index` workspace ids (`DP-3:1`), `output` = DRM connector (`DP-3`). **Frame 4 has `#active==0`** — the transient empty-`active` case the D1 spike hinges on. |
+| `capture-0.ndjson` | `umbriel 0.1.0` | `subscribe windows workspaces` stream: line 1 = startup `windows` full snapshot, line 2 = `workspaces` full snapshot (the immediate subscribe burst), then `windows` events for within-workspace focus cycling, title mutation, a window open (`kitty`), and geometry moves. Confirms: immediate burst on subscribe, full-snapshot-per-event (no deltas), per-workspace `focused` (two `focused:true` windows at once), `output:opaque-id` workspace ids (`DP-3:1`; the suffix is an internal id, NOT the display index — `DP-3:17` has `index:2`), `output` = DRM connector (`DP-3`). **Frame 4 has `#active==0`** — the transient empty-`active` case the D1 spike hinges on. |
 | `capture-1.ndjson` | `umbriel 0.1.0` | D1 spike: cross-workspace focus bounce (`window-focus:<id>` between `DP-3:1` and `DP-3:17`). Shows the **`windows`-before-`workspaces` ordering** on every cross-workspace jump (frames 3→4, 5→6, 8→9, 10→11) — the reason a focused-workspace join lags one frame and the adapter derives focus from the window `active` flag instead. See `slice/005/notes.md` §D1 spike. |
 
 ## Capture protocol
@@ -41,11 +41,14 @@ focus rule) was **reversed by the spike** and these captures:
   signal. Its transient empties (`capture-0` frame 4, `#active==0`) are covered by
   a pure Tier-2 fallback (focused window on the focused workspace), no prior state.
 - **Cross-workspace switches DO fire a `workspaces` event**, but `capture-1` shows
-  the `windows` event *precedes* it every time — so the workspace→output *label*
-  join (not the focus decision) can lag one frame; the projection splits the
-  composite `"<output>:<index>"` workspace id to cover that frame (design §5.2
-  `_locate`). A pure workspace-switch with no focus change was not isolated, but the
-  bounce in `capture-1` exercises the `workspaces`-event firing.
+  the `windows` event *precedes* it every time. The projection retains the last
+  `workspaces` snapshot, so a switch onto a **pre-existing** workspace (every case in
+  these captures) resolves its label immediately — no lag. The lag only bites a
+  *genuinely new* workspace not yet in any snapshot; the composite id's suffix is an
+  **opaque internal id, not the display index** (`DP-3:17` has `index:2`, `name:"2"`),
+  so no label can be read from it — the session coherence-holds until the entry lands
+  (design §5.2 `_locate` / §5.4). A pure workspace-switch with no focus change was not
+  isolated, but the bounce in `capture-1` exercises the `workspaces`-event firing.
 
 Edge scenarios the captures cannot force on demand (partial burst, burst-completion
 timeout, live coherence hold on a new-workspace windows-before-workspaces sequence,

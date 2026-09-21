@@ -23,14 +23,16 @@ windows workspaces` transcript — both banked as fixtures):
   corresponding query response — identical consecutive payloads coalesced. So the
   projection is snapshot-replace, **not** a delta accumulator: niri's burst-gate and
   novelty detection do not exist here.
-- **Focus is transitive and per-workspace.** `focused` is a *per-workspace* window
-  flag — multiple windows carry `focused:true` at once (one per workspace column). The
-  globally-focused window = the `focused:true` window whose workspace is the
-  `focused:true` workspace (`workspaces` snapshot). Structurally the same derivation as
-  niri's focused-workspace→active-window (SL-003 DL-6); the window `active` flag is
-  unreliable as a shortcut (absent in some frames) — use the workspace→window join.
+- **Focus is per-workspace; seat focus is `active`.** `focused` is a *per-workspace*
+  window flag — multiple windows carry `focused:true` at once (one per workspace column),
+  so it is not a global signal. **[Superseded by the D1 spike — see design DL-4:** the
+  spike reversed this scoping guess. The seat's keyboard focus is the window `active`
+  flag (0-or-1 globally, primary), with the focused-workspace→focused-window join as a
+  pure fallback only. The pre-spike "use the workspace→window join, `active` is
+  unreliable" note below is wrong.**]**
 - **Data model joins cleanly.** Window carries `workspace` (a composite `"DP-3:1"` =
-  `output:index` id, empty when scratchpad); workspace carries `output` (DRM connector,
+  `output:<opaque-id>`, empty when scratchpad — the suffix is an internal id, **not** the
+  display index: `DP-3:17` has `index:2`); workspace carries `output` (DRM connector,
   e.g. `"DP-3"`). Window→workspace→output is transitive. IDs are opaque strings, stable
   while open.
 
@@ -81,7 +83,8 @@ workspace→window join).
 
 - **Golden fixtures banked (2026-09-21):** `windows` query + `subscribe windows
   workspaces` transcript from a live host. Confirmed: immediate subscribe burst,
-  full-snapshot events, per-workspace `focused`, `output:index` workspace ids.
+  full-snapshot events, per-workspace `focused`, `output:<opaque-id>` workspace ids
+  (suffix ≠ display index — spike/design DL-1/ASM-U2).
 - **Open (resolve at `/design`, low risk):** no capture of an actual *workspace switch*
   — confirm it fires a `workspaces` event (expected, since window-focus-within-workspace
   fires `windows`). Nail `active` vs `focused` window-flag semantics from the fixtures.

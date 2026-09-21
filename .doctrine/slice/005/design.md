@@ -219,7 +219,8 @@ def _locate(ws_id, ws):
         return None, None
     return None, ws_id.split(":", 1)[0] or None   # UNRESOLVED (new ws, entry not yet in
                                              # map): output=prefix; label unknown → None.
-                                             # focus_coherent is False here → session holds.
+                                             # focus_coherent is False → LIVE mode holds
+                                             # (snapshot/burst emits this best-effort).
 
 # focus_coherent — is the current focus fully resolvable? The session withholds emission
 #   until it is (bounded — see §5.4 coherence hold). False iff a window is focused on a
@@ -281,17 +282,27 @@ optionality).
     `run_watcher` turns it into a `compositor_disconnected` + backoff, rather than a
     wedged session. (The equivalent hang is latent in niri; the fix rides the shared
     session shape where practical, else is umbriel-local — noted for the niri backlog.)
-- **Coherence hold (RV-005.2).** In live mode, after `apply(event)`, if
-  `proj.focus_coherent` is `False` — a window is focused on a non-empty workspace id not
-  yet in the workspaces map (a *new* workspace whose `windows` event led its `workspaces`
-  event) — the session **withholds**: it neither emits nor advances its `prior` baseline,
-  and folds the next event. The following `workspaces` frame lands the entry → coherent →
-  the accumulated change emits as a **single** `window_focus` with the correct label (not
-  a fabricated one, and no None→label flap). Bounded by a `coherence_timeout` (same
-  default as the burst deadline): if coherence never arrives, emit **best-effort** once
-  (output from the id prefix, `workspace=None`) and resume — fail-open, never wedge. The
-  common cross-workspace move (pre-existing target) is always coherent → no hold. This
-  generalises the burst gate's "don't emit an incoherent intermediate" to live mode.
+- **Coherence hold (RV-005.2).** Applies to **live mode only** — the burst/snapshot emits
+  best-effort (a full snapshot is as coherent as umbriel gets; no hold, so no reconnect
+  loop). In live mode, after `apply(event)`, if `proj.focus_coherent` is `False` — a
+  window is focused on a non-empty workspace id not yet in the workspaces map (a *new*
+  workspace whose `windows` event led its `workspaces` event) — the session **withholds**:
+  it neither emits nor advances its `prior` baseline, and folds the next event. The
+  following `workspaces` frame lands the entry → coherent → the accumulated change emits as
+  a **single precedence-correct observation**: `window_focus` when the focused-window
+  identity changed, or `workspace_focus` when the *same* window merely moved onto the new
+  workspace (per DL-7 — never a fabricated label, no None→label flap either way).
+- **Coherence timeout → disconnect/reburst (RV-005.2, fail-safe).** Bounded by a
+  `coherence_timeout` (same default as the burst deadline). If coherence never arrives, the
+  session does **not** emit a `workspace=None` live observation — that would mis-derive
+  (a `window_focus(ws=None)` reads as defocus and the later `workspace_focus` cannot reopen
+  a segment from `running=None`; a same-window `workspace_focus` would misattribute the
+  interval). Instead it **raises → `run_watcher` emits `compositor_disconnected`, backs
+  off, and reconnects**, re-seeding a fresh consistent snapshot (deriver closes the running
+  segment, then reopens correctly). Same recovery path as the burst-completion timeout; no
+  incoherent live observation ever escapes. The common cross-workspace move (pre-existing
+  target) is always coherent → no hold, no timeout. This generalises the burst gate's
+  "don't emit an incoherent intermediate" to live mode.
 - **Live deltas → diff emission (D10, precedence per DL-7/ISS-001)**: once coherent, in
   live mode compute `to_state()` and hand `(prior, new)` to the shared
   `compositor/diff.py::diff_state`, which names the observation by the highest-precedence
@@ -376,9 +387,11 @@ optionality).
   arises **only** for a *genuinely new* workspace whose `windows` event precedes its first
   `workspaces` event; the id suffix is opaque (not the index) so no label can be
   fabricated. `focus_coherent` is `False` → the **session coherence-holds** (§5.4) until
-  the `workspaces` entry lands, then emits one clean `window_focus`. Deadline fail-open =
-  output-from-prefix + `workspace=None`. Hand-authored (unobserved in the captures, which
-  only exercise pre-existing targets).
+  the `workspaces` entry lands, then emits one precedence-correct observation
+  (`window_focus` / `workspace_focus` per DL-7). If the entry never lands within
+  `coherence_timeout`, the session **raises → disconnect/reburst** (fail-safe; no
+  `workspace=None` live observation escapes). Hand-authored (unobserved in the captures,
+  which only exercise pre-existing targets).
 - **Edge — focused scratchpad window** (`workspace: ""`): `WindowRef` surfaced,
   `workspace`/`output` = `None` (DL-3). Untested live (no capture of focusing a
   scratchpad); PHASE-01 hand-authors it.
@@ -527,8 +540,9 @@ optionality).
   silent socket (RV-005.5a), **cross-workspace switch emits one `window_focus`** with the
   new app attributed (from `capture-1`; DL-7/ISS-001 — asserting no one-frame flap and no
   app mis-attribution despite windows-before-workspaces), **coherence hold — a new-
-  workspace windows-before-workspaces sequence emits a single `window_focus` with the
-  resolved label (no None→label or suffix→label flap), and the deadline fail-open path**
+  workspace windows-before-workspaces sequence emits a single precedence-correct
+  observation with the resolved label (no None→label or suffix→label flap); and the
+  `coherence_timeout` path raises → disconnect/reburst (no `workspace=None` live emit)**
   (RV-005.2), title-diff suppression (D10), geometry-only → no emit, transient `active==0`
   emits nothing (no flap, from `capture-0`).
   (The shared `diff_state` + deriver attribution itself is regression-locked in
@@ -558,12 +572,14 @@ optionality).
 ### RV-005 — adversarial review (gpt-5.6-sol, 2026-09-21)
 
 Ledger from the codex/gpt-5.6-sol pass, each independently verified against code
-+ fixtures. **Status: blocker (ISS-001) LANDED; design revised twice.** A confirming
-re-review (gpt-5.6-sol, 2026-09-21, second pass) verified RV-005.1/.4/.6/.7/.8 RESOLVED,
-but caught that the **first** RV-005.2 fix rested on a false premise (it read the
-composite-id suffix as the display index — `capture-0` L2 disproves it: id `"DP-3:17"`
-has `index=2`). **Second revision (below) replaces that with a session coherence hold**
-and tightens RV-005.3/.5b wording. Per-item disposition in "Revision — applied".
++ fixtures. **Status: blocker (ISS-001) LANDED; design revised three times across two
+confirming re-reviews.** 2nd pass: RV-005.1/.4/.6/.7/.8 RESOLVED, first RV-005.2 fix
+rejected (read the composite-id suffix as the display index — `capture-0` L2 disproves
+it: `"DP-3:17"` has `index=2`). 3rd pass (narrow, coherence-hold surface only): ASM-U2
++ `_locate` SOUND, RV-005.3 wording SOUND, but caught a **BLOCKER** in the coherence
+timeout fail-open (mis-derives) + a `window_focus` overclaim — both fixed this revision
+(timeout → disconnect/reburst; "one precedence-correct observation"). Per-item
+disposition in "Revision — applied".
 
 - **RV-005.1 — BLOCKER — cross-workspace focus mis-attributes the app downstream.**
   CONFIRMED end-to-end: replaying `capture-1`'s observation sequence through the real
@@ -670,11 +686,19 @@ Per-item disposition:
 - **RV-005.1** — LANDED as **ISS-001** (commits c0ab29a/365e4f3, status `resolved·fixed`).
   Shared `compositor/diff.py::diff_state`, window-identity-wins precedence; niri + umbriel
   share it. Design: DL-7, §5.1, §5.4 emission rewrite. **Re-review: RESOLVED.**
-- **RV-005.2** (join miss) — **first fix (id-split) REJECTED by the re-review** (false
-  premise: suffix ≠ index). **Second fix:** session **coherence hold** — `focus_coherent`
-  + withhold-until-resolved with a fail-open `coherence_timeout`; `to_state` never
-  fabricates a label, output from the reliable id prefix (§5.2/§5.4/§5.5, ASM-U2 corrected).
-  §5.2 "no ordering dependency" scoped to focus-identity.
+- **RV-005.2** (join miss) — **first fix (id-split) REJECTED** by the 2nd pass (false
+  premise: suffix ≠ index). **Second fix (coherence hold) refined by the 3rd (narrow)
+  pass**, which caught two things: (i) "one `window_focus`" overclaimed — a *same-window*
+  move onto the new workspace is correctly `workspace_focus` (DL-7), so the guarantee is
+  "one precedence-correct observation"; (ii) **BLOCKER** — the original fail-open ("emit
+  best-effort `workspace=None` and resume") mis-derives (a `window_focus(ws=None)` reads
+  as defocus and the later `workspace_focus` can't reopen from `running=None`; a
+  same-window `workspace_focus` misattributes the interval). **Corrected:** the
+  `coherence_timeout` now **raises → disconnect/reburst** (fail-safe, same path as the
+  burst timeout — no incoherent live observation escapes); burst/snapshot never holds
+  (emits best-effort), ruling out a reconnect loop. Live-only hold via `focus_coherent`;
+  `to_state` never fabricates a label (output from the reliable id prefix). §5.2/§5.4/§5.5,
+  ASM-U2 corrected; PROVENANCE + slice scope de-staled (`output:<opaque-id>`).
 - **RV-005.3** (Tier-2 overclaim) — DL-4 + §5.5 downgraded layer/overview to *untested*;
   **ASM-U3 single-seat** + **`>1 active` policy** (ASM-U1) added; **scratchpad
   `active:false`** edge settled (neither tier picks it); layer-surface over-count restated

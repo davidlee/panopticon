@@ -29,7 +29,7 @@ from typing import Any, Protocol, runtime_checkable
 class WindowRef:
     """Identity of a single window. All fields best-effort/optional."""
 
-    window_id: int | None = None
+    window_id: int | str | None = None  # int (sway/niri) or opaque str id (DL-6)
     app_id: str | None = None
     pid: int | None = None
     title: str | None = None

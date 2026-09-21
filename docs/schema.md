@@ -35,7 +35,10 @@ Consumers must skip lines whose `v` they don't understand.
 Emitted by the neutral watcher (`panopticon-desktop`) over either compositor
 adapter. Every event carries `source:"desktop"` plus a `producer` (`sway` or
 `niri`) and, where a window is involved, `window_id`, `app_id`, `pid`, `title`,
-`workspace`, and `output` (null-valued keys are omitted).
+`workspace`, and `output` (null-valued keys are omitted). `window_id` is the
+compositor's window handle — an integer for sway/niri, or an opaque string for
+compositors that identify windows by string id. Consumers must treat it as an
+opaque token, not an integer.
 
 Common to both adapters:
 

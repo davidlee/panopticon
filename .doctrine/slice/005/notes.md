@@ -49,3 +49,26 @@ because umbriel exposes seat focus directly via `active`.
 **Residual (small):** multi-output focused-workspace behaviour not exercised (single
 DP-3 host) — the `active`-primary rule is expected to be robust to it precisely because
 seat focus is global; note for the design to state, not a blocker.
+
+## PHASE-01 — RV-005.3 layer-surface disposition (2026-09-22)
+
+**Gate:** settle whether per-workspace `focused` persists on the last tiled window
+while seat focus rests on a **layer surface** (launcher / overview / persistent shell).
+If it persists, Tier-2 keeps attributing to that tiled window rather than closing →
+an over-count bounded only by how long focus rests on the layer surface (seconds for a
+launcher; unbounded for a persistent layer shell — so *not* generally bounded).
+
+**Outcome: ACCEPTED LIMITATION (no live capture).** Umbriel is unreachable from the
+build jail (design §2), so the live layer-surface capture could not be attempted in
+PHASE-01. Per the design's capture-**or**-accept phase gate (§5.5 / RV-005.3), the
+Tier-2 over-count stands as a documented, accepted limitation of the umbriel adapter.
+No design invariant depends on the outcome; nothing gates on it.
+
+- **Durable record:** here (this note).
+- **Public schema note:** lands in **PHASE-03** with the `umbriel` producer entry
+  (RV-005.8 ordering — the public schema must not describe a producer before it is
+  live). Tracked as a PHASE-03 deliverable, not omitted.
+- **If host access opens:** capture `subscribe windows,workspaces` while opening a
+  launcher/overview over a single tiled window; inspect whether that window keeps
+  `focused:true`. A definitive capture would downgrade this from "accepted limitation"
+  to either "covered" (clears) or a precise bound (persists). Left for david (host).

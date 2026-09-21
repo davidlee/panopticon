@@ -33,6 +33,19 @@ def test_to_dict_flattens_with_window_id_key():
     }
 
 
+def test_window_id_accepts_str_and_round_trips():
+    # DL-6: window_id widened to int | str | None for opaque string-id compositors
+    # (umbriel ids are hex strings). The value round-trips through to_dict verbatim —
+    # never coerced or hashed to int (lossy). window_id is not in the focus key, so
+    # segment correctness is unaffected; this is purely the typed contract + schema.
+    st = DesktopState(
+        window=WindowRef(window_id="927b2d7e", app_id="firefox", pid=123, title="MDN"),
+        workspace="2",
+        output="DP-3",
+    )
+    assert st.to_dict()["window_id"] == "927b2d7e"
+
+
 def test_empty_state_to_dict_is_today_empty_shape():
     # The FocusState() empty shape, con_id renamed to window_id: all six keys None.
     assert DesktopState().to_dict() == {

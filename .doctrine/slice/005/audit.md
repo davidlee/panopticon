@@ -13,11 +13,11 @@ each RV item and each VT test against the code it claims to lock.
 
 ## Verdict
 
-**PASS — ready to reconcile + close.** The RV-005 ledger is fully discharged *in
-code*, not merely in prose; all EX/VT criteria are met by non-tautological tests;
-the behaviour-preservation gate holds. One non-gating item outstanding (**VH-1**,
-live-host acceptance — david's to run). Two cosmetic doc nits noted below, neither
-blocking.
+**PASS — closed; VH-1 live acceptance confirmed.** The RV-005 ledger is fully
+discharged *in code*, not merely in prose; all EX/VT criteria are met by
+non-tautological tests; the behaviour-preservation gate holds. **VH-1 passed on
+the live umbriel host (2026-09-23)** — see below. One cosmetic doc nit noted,
+non-blocking.
 
 ## RV-005 ledger closure (design §10 — the acceptance bar)
 
@@ -109,15 +109,35 @@ Every VT was checked to fail on regression, not pass vacuously:
 - Coherence VTs pin the resolved label value (`"mail"`) and assert nothing
   incoherent leaked, not merely a count.
 
-## Outstanding (non-gating)
+## VH-1 — live-host acceptance (PASS, 2026-09-23)
 
-- **VH-1 — live-host acceptance.** `panopticon-desktop --compositor auto` on the
-  live umbriel host writing `current/desktop.json` with a real focused window.
-  Requires host access (umbriel is unreachable from the build jail). **Does not
-  block close** (plan marks it VH, non-gating). David's to run when on the host.
-- **RV-005.3 upgrade path.** If host access opens, a live layer-surface capture
-  would downgrade the accepted limitation to "covered" or a precise bound
-  (`notes.md` records the exact capture recipe).
+Run on the live umbriel host (`umbriel-wayland-0.sock`, single output DP-3):
+`panopticon-desktop --compositor auto -v` with `NIRI_SOCKET`/`SWAYSOCK` unset.
+Auto-detection resolved to umbriel (DL-8 probe order, live), connected, and wrote
+`current/desktop.json` with a real focused window:
+
+```
+window_id  fa904657cf57abb82c9e7a4a5d080c4a   # opaque hex STRING (DL-6) — umbriel-unique
+app_id     com.mitchellh.ghostty
+pid        1566548                            # positive int, no -1 sentinel (DL-9)
+title      ~/dev/panopticon> let
+workspace  2                                  # clean label, not the composite id (DL-1)
+output     DP-3                               # DRM connector
+```
+
+The opaque-string `window_id` is decisive that the umbriel adapter is the live
+producer (sway/niri emit integer ids). Live-confirmed properties that were only
+fixture-tested before: DL-6 string id, DL-1 label (suffix not leaked), DL-8 auto
+probe reaching umbriel end-to-end, and a well-formed neutral `DesktopState`.
+
+**Scope run:** quick pass (steps 0–2). The adversarial edge probes were not run,
+so these remain as before — untested live, non-gating:
+- **RV-005.3 layer-surface over-count** stays an **accepted limitation** (no live
+  layer-surface capture taken). `notes.md` records the exact capture recipe to
+  settle it if host time opens later.
+- **pid:-1 XWayland sentinel** not exercised live (ghostty is native wayland with
+  a real pid); fixture-covered (`capture-0` Spotify, VT-5).
+- **Multi-output Tier-2 ambiguity** (OQ-2) not exercised (single-output DP-3 host).
 
 ## Findings (cosmetic, non-blocking)
 

@@ -1,10 +1,11 @@
 """Cross-compositor equivalence (SL-003 PHASE-02, VT-4, F-6).
 
 The same user action — *switch to workspace "2" on output DP-2, landing focus on
-window B* — driven through the Sway and Niri sessions must land equivalently:
-snapshot-first, connector-name outputs on both, the same workspace-transition
-shape, and the same final focus (window B on DP-2). This is the contract the
-deriver depends on (INV-N3): two producers, one neutral vocabulary.
+window B* — driven through the Sway, Niri AND Umbriel sessions must land
+equivalently: snapshot-first, connector-name outputs on all three, the same
+workspace-transition shape, and the same final focus (window B on DP-2). This is
+the contract the deriver depends on (INV-N3): three producers, one neutral
+vocabulary.
 
 Intermediate-frame divergence (real, documented adapter difference). The two
 adapters model the transition's middle frame differently, and after ISS-001
@@ -23,6 +24,11 @@ So the intermediate name legitimately differs (``window_focus`` vs
 ``workspace_focus``); what must agree is the landing. Sway's retained-A
 intermediate leaves a transient A-on-ws2 in the derived stream — a pre-existing
 sway-adapter artifact, orthogonal to ISS-001 (see the slice notes).
+
+* **umbriel** carries the whole switch in one full ``windows`` snapshot (the seat
+  ``active`` flag moves A→B in-band), so it lands *directly* as ``window_focus``
+  with no intermediate frame at all — both target workspaces pre-exist, so the
+  coherence hold never engages.
 """
 
 from __future__ import annotations
@@ -31,9 +37,14 @@ from panopticon.compositor.model import DesktopObservation
 from panopticon.compositor.niri.session import NiriSession
 from panopticon.compositor.sway.project import IpcEvent
 from panopticon.compositor.sway.session import SwaySession
+from panopticon.compositor.umbriel.session import UmbrielSession
 from tests.niri_wire import win, windows_changed, workspaces_changed, ws
 from tests.test_compositor_niri_session import _frames_from
 from tests.test_compositor_sway_session import _events_from, _get_tree_returning, _tree
+from tests.umbriel_wire import win as uwin
+from tests.umbriel_wire import windows as uwindows
+from tests.umbriel_wire import workspaces as uworkspaces
+from tests.umbriel_wire import ws as uws
 
 # window A: ghostty on workspace "1" / output DP-3 (initial focus)
 # window B: firefox on workspace "2" / output DP-2 (the switch target)
@@ -93,25 +104,69 @@ def _sway_session() -> SwaySession:
     return SwaySession(_events_from(events), _get_tree_returning(before, after))
 
 
-async def test_niri_and_sway_cross_output_switch_land_equivalently():
+def _umbriel_session() -> UmbrielSession:
+    # umbriel carries the switch in a single full windows snapshot: the seat
+    # `active` flag moves A→B in-band. Both workspaces pre-exist (DP-3:1 "1",
+    # DP-2:2 "2"), so the burst resolves and no coherence hold engages.
+    frames = [
+        uwindows(
+            uwin("wa", app_id="ghostty", pid=1, title="term", active=True, focused=True),
+            uwin("wb", app_id="firefox", pid=2, title="web", workspace="DP-2:2"),
+        ),
+        uworkspaces(
+            uws("DP-3:1", 1, name="1", focused=True),
+            uws("DP-2:2", 2, name="2"),
+        ),
+        # the switch: seat focus (active) moves to B on the other workspace/output
+        uwindows(
+            uwin("wa", app_id="ghostty", pid=1, title="term", focused=True),
+            uwin(
+                "wb",
+                app_id="firefox",
+                pid=2,
+                title="web",
+                workspace="DP-2:2",
+                active=True,
+                focused=True,
+            ),
+        ),
+        uworkspaces(
+            uws("DP-3:1", 1, name="1"),
+            uws("DP-2:2", 2, name="2", focused=True),
+        ),
+    ]
+    return UmbrielSession(_frames_from(frames))
+
+
+async def test_niri_sway_and_umbriel_cross_output_switch_land_equivalently():
     niri = await _collect(_niri_session())
     sway = await _collect(_sway_session())
+    umbriel = await _collect(_umbriel_session())
 
-    # 1. snapshot-first on both; same landing event (focus B via window_focus)
-    assert niri[0].event == sway[0].event == "snapshot"
-    assert niri[-1].event == sway[-1].event == "window_focus"
+    # 1. snapshot-first on all three; same landing event (focus B via window_focus)
+    assert niri[0].event == sway[0].event == umbriel[0].event == "snapshot"
+    assert niri[-1].event == sway[-1].event == umbriel[-1].event == "window_focus"
 
     # 1b. honest per-adapter sequences — the intermediate name differs by how each
-    #     models the middle frame (ISS-001): niri nulls the window, sway keeps A.
+    #     models the middle frame (ISS-001): niri nulls the window, sway keeps A,
+    #     umbriel carries the switch in one snapshot so it lands directly (no middle).
     assert [o.event for o in niri] == ["snapshot", "window_focus", "window_focus"]
     assert [o.event for o in sway] == ["snapshot", "workspace_focus", "window_focus"]
+    assert [o.event for o in umbriel] == ["snapshot", "window_focus"]
 
-    # 2. output = DRM connector names on both, landing on DP-2
-    assert niri[0].state.output == sway[0].state.output == "DP-3"
-    assert niri[-1].state.output == sway[-1].state.output == "DP-2"
+    # 2. output = DRM connector names on all three, landing on DP-2
+    assert niri[0].state.output == sway[0].state.output == umbriel[0].state.output == "DP-3"
+    assert niri[-1].state.output == sway[-1].state.output == umbriel[-1].state.output == "DP-2"
 
     # 3. matching workspace-transition shape (distinct values, in order)
-    assert _distinct_workspaces(niri) == _distinct_workspaces(sway) == ["1", "2"]
+    assert (
+        _distinct_workspaces(niri)
+        == _distinct_workspaces(sway)
+        == _distinct_workspaces(umbriel)
+        == ["1", "2"]
+    )
 
-    # both land focus on window B
+    # all three land focus on window B (ids differ by type: int vs opaque str)
     assert niri[-1].state.window.window_id == sway[-1].state.window.window_id == 102
+    assert umbriel[-1].state.window.window_id == "wb"
+    assert umbriel[-1].state.window.app_id == "firefox"

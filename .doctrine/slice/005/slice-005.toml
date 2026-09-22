@@ -1,9 +1,9 @@
 id = 5
 slug = "umbriel-adapter"
 title = "Umbriel adapter"
-status = "proposed"
+status = "done"
 created = "2026-09-21"
-updated = "2026-09-21"
+updated = "2026-09-22"
 tags = []
 
 [relationships]

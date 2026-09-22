@@ -10,6 +10,66 @@ tags = []
 needs = ["SL-002", "ISS-001"]                      # slice→work hard prerequisite
 after = []                      # slice→work soft sequence: { to, rank }
 
+[[selector]]
+selector = "panopticon/compositor/umbriel/**"
+intent = "design-target"
+note = "design §3 stated change surface (umbriel adapter + probe + DL-6 widen + CLI + schema)"
+
+[[selector]]
+selector = "panopticon/compositor/detect.py"
+intent = "design-target"
+note = "design §3 stated change surface (umbriel adapter + probe + DL-6 widen + CLI + schema)"
+
+[[selector]]
+selector = "panopticon/compositor/model.py"
+intent = "design-target"
+note = "design §3 stated change surface (umbriel adapter + probe + DL-6 widen + CLI + schema)"
+
+[[selector]]
+selector = "panopticon/desktop_watcher/__main__.py"
+intent = "design-target"
+note = "design §3 stated change surface (umbriel adapter + probe + DL-6 widen + CLI + schema)"
+
+[[selector]]
+selector = "docs/schema.md"
+intent = "design-target"
+note = "design §3 stated change surface (umbriel adapter + probe + DL-6 widen + CLI + schema)"
+
+[[selector]]
+selector = "tests/test_compositor_umbriel_*.py"
+intent = "scope-relevant"
+note = "TDD suites + slice notes supporting the delivery"
+
+[[selector]]
+selector = "tests/umbriel_wire.py"
+intent = "scope-relevant"
+note = "TDD suites + slice notes supporting the delivery"
+
+[[selector]]
+selector = "tests/test_compositor_detect.py"
+intent = "scope-relevant"
+note = "TDD suites + slice notes supporting the delivery"
+
+[[selector]]
+selector = "tests/test_compositor_equivalence.py"
+intent = "scope-relevant"
+note = "TDD suites + slice notes supporting the delivery"
+
+[[selector]]
+selector = "tests/test_compositor_model.py"
+intent = "scope-relevant"
+note = "TDD suites + slice notes supporting the delivery"
+
+[[selector]]
+selector = "tests/test_desktop_main.py"
+intent = "scope-relevant"
+note = "TDD suites + slice notes supporting the delivery"
+
+[[selector]]
+selector = ".doctrine/slice/005/notes.md"
+intent = "scope-relevant"
+note = "TDD suites + slice notes supporting the delivery"
+
 [[relation]]
 label = "references"
 role = "implements"

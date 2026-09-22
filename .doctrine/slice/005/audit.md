@@ -42,6 +42,26 @@ Each item walked against the shipped code, not the prose.
 *precedence-correct* observation" (window_focus on identity change, workspace_focus
 on same-window move), both directly tested.
 
+## Objective gates (doctrine tooling)
+
+Beyond the manual review, the CLI's own gates were run (after seeding the
+source-delta registry — `record-delta --commit` per phase: PHASE-01=`d238133`,
+PHASE-02=`8435580`, PHASE-03=`27e504d` — since the phases were executed solo
+without delta binding; the registry is runtime/regenerable from that map):
+
+- **`slice verify-vt SL-005` — all 13 VT criteria PASS** (attributable: each VT's
+  `test_file`/`keywords`/`patterns` matched within the owning phase's delta). Exit 0.
+- **`slice conformance SL-005`** — **8/8 design-target source paths conformant,
+  0 undelivered.** The implementation touched exactly the surface design §3
+  declared (`umbriel/**`, `detect.py`, `model.py`, `__main__.py`, `schema.md`) —
+  no scope creep. The 9 "undeclared" paths are all test files + `notes.md`, the
+  expected TDD/doctrine accompaniment (conformance is a design-target-only
+  cross-check; tests were declared `scope-relevant`, not targets). Exit 0.
+- **`slice selector doctor SL-005` — healthy, no findings** (no uncompilable /
+  unmatched / redundant / broad selectors).
+- Selectors were authored at close from the design §3 surface (the mechanism
+  postdates the slice's execution) — committed in `slice-005.toml`.
+
 ## Per-phase EX/VT conformance
 
 **PHASE-01** (EX-1..4, VT-1..6, VA-1) — model widen, protocol, pure projection.

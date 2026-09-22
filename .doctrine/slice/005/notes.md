@@ -65,9 +65,10 @@ Tier-2 over-count stands as a documented, accepted limitation of the umbriel ada
 No design invariant depends on the outcome; nothing gates on it.
 
 - **Durable record:** here (this note).
-- **Public schema note:** lands in **PHASE-03** with the `umbriel` producer entry
-  (RV-005.8 ordering — the public schema must not describe a producer before it is
-  live). Tracked as a PHASE-03 deliverable, not omitted.
+- **Public schema note:** LANDED in **PHASE-03** (commit `27e504d`) — a
+  "Known limitation (umbriel layer-surface focus)" blockquote in `docs/schema.md`,
+  alongside the `umbriel` producer entry (RV-005.8 ordering satisfied: producer
+  now live). PHASE-01's deferral is discharged.
 - **If host access opens:** capture `subscribe windows,workspaces` while opening a
   launcher/overview over a single tiled window; inspect whether that window keeps
   `focused:true`. A definitive capture would downgrade this from "accepted limitation"

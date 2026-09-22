@@ -74,3 +74,27 @@ async def frames(sock_path: str, *, connect_timeout: float = 2.0) -> AsyncIterat
     finally:
         writer.close()
         await writer.wait_closed()
+
+
+async def probe(sock_path: str, *, connect_timeout: float = 2.0) -> bool:
+    """Connect-validate the umbriel subscribe stream, then close (D7 auto-detect).
+
+    Runs the same connect + subscribe as :func:`frames` (bounded, F-5), reads one
+    framed line to confirm the stream is live, immediately tears the connection
+    down, and returns ``True``. Raises on connect failure, timeout, or an
+    immediate EOF (no frame) — ``detect._probe_umbriel`` converts a raise into
+    "not reachable". Never streams the rest of the burst.
+    """
+    reader, writer = await asyncio.wait_for(
+        asyncio.open_unix_connection(sock_path), connect_timeout
+    )
+    try:
+        writer.write(_SUBSCRIBE_REQUEST)
+        await writer.drain()
+        first = await asyncio.wait_for(reader.readline(), connect_timeout)
+        if not first:  # immediate EOF — not a live umbriel stream
+            raise ConnectionError(f"umbriel socket {sock_path} closed without streaming")
+        return True
+    finally:
+        writer.close()
+        await writer.wait_closed()

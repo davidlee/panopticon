@@ -20,6 +20,10 @@ def test_parse_args_compositor_sway():
     assert parse_args(["--compositor", "sway"]).compositor == "sway"
 
 
+def test_parse_args_compositor_umbriel():
+    assert parse_args(["--compositor", "umbriel"]).compositor == "umbriel"
+
+
 def test_parse_args_rejects_unknown_compositor():
     with pytest.raises(SystemExit):
         parse_args(["--compositor", "wlroots"])

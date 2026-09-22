@@ -20,7 +20,7 @@ Consumers must skip lines whose `v` they don't understand.
 
 - `desktop` — compositor events from the neutral desktop watcher
   (`panopticon-desktop`). Every event also carries a `producer` field naming
-  the live compositor — `sway` or `niri`. Running either compositor writes
+  the live compositor — `sway`, `niri`, or `umbriel`. Running any of them writes
   `source:"desktop"` (`raw/desktop-*.jsonl`).
 - `firefox` — active-tab attention events from the Firefox WebExtension
   via `panopticon-firefox-host`.
@@ -32,13 +32,13 @@ Consumers must skip lines whose `v` they don't understand.
 
 ## Desktop events
 
-Emitted by the neutral watcher (`panopticon-desktop`) over either compositor
-adapter. Every event carries `source:"desktop"` plus a `producer` (`sway` or
-`niri`) and, where a window is involved, `window_id`, `app_id`, `pid`, `title`,
-`workspace`, and `output` (null-valued keys are omitted). `window_id` is the
-compositor's window handle — an integer for sway/niri, or an opaque string for
-compositors that identify windows by string id. Consumers must treat it as an
-opaque token, not an integer.
+Emitted by the neutral watcher (`panopticon-desktop`) over any compositor
+adapter. Every event carries `source:"desktop"` plus a `producer` (`sway`,
+`niri`, or `umbriel`) and, where a window is involved, `window_id`, `app_id`,
+`pid`, `title`, `workspace`, and `output` (null-valued keys are omitted).
+`window_id` is the compositor's window handle — an integer for sway/niri, or an
+opaque string for umbriel (which identifies windows by string id). Consumers
+must treat it as an opaque token, not an integer.
 
 Common to both adapters:
 
@@ -64,6 +64,22 @@ events (the Niri adapter emits none of them):
 - `window_urgent`
 - `window_close`
 - `workspace_urgent`
+
+The Umbriel adapter emits only the common events above (like Niri, none of the
+Sway passthrough events): umbriel streams a full window/workspace snapshot per
+change, so window opens/moves/retitles surface as the next `snapshot`-shaped
+recompute (`window_focus` / `window_title` / `workspace_focus`), not as
+per-window events. Its `window_id` is an opaque string.
+
+> **Known limitation (umbriel layer-surface focus).** Umbriel exposes seat
+> keyboard focus via a per-window `active` flag; when focus rests on a layer
+> surface (a launcher, overview, or persistent shell) `active` can be empty and
+> the adapter falls back to the focused workspace's focused window. It is
+> unconfirmed whether that tiled window keeps its focus flag while the layer
+> surface holds focus — if it does, the focused-app segment over-counts for as
+> long as focus stays on the layer surface (bounded for a transient launcher,
+> potentially unbounded for a persistent layer shell). No downstream invariant
+> depends on it; the over-count is the only effect.
 
 ## Firefox events
 

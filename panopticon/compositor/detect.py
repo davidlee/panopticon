@@ -22,6 +22,7 @@ from panopticon.compositor.model import CompositorClient
 AUTO = "auto"
 SWAY = "sway"
 NIRI = "niri"
+UMBRIEL = "umbriel"
 
 NIRI_SOCKET_ENV = "NIRI_SOCKET"
 SWAY_SOCKET_ENV = "SWAYSOCK"
@@ -37,16 +38,20 @@ def select_client(compositor: str) -> tuple[CompositorClient, str]:
         return _sway_client(), SWAY
     if compositor == NIRI:
         return _niri_client(), NIRI
+    if compositor == UMBRIEL:
+        return _umbriel_client(), UMBRIEL
     if compositor == AUTO:
         return _auto_select()
     raise ValueError(f"unknown compositor: {compositor!r}")
 
 
 def _auto_select() -> tuple[CompositorClient, str]:
-    """Connect-validated D7 resolution: probe niri first (DL-4), then sway.
+    """Connect-validated D7 resolution: probe niri, then sway, then umbriel.
 
-    Only a *set* socket var is probed; the one that connects wins, niri ahead of
-    sway when both do. Nothing reachable → raise, listing what was tried.
+    Only a *resolvable* socket is probed; the first that connects wins, in the
+    fixed total order niri > sway > umbriel (DL-4 / DL-8). umbriel's derived path
+    is eligible only when it resolves without fabricating a ``.../umbriel-None.sock``.
+    Nothing reachable → raise, listing what was tried.
     """
     tried: list[str] = []
 
@@ -62,10 +67,16 @@ def _auto_select() -> tuple[CompositorClient, str]:
         if _probe_sway(sway_sock):
             return _sway_client(), SWAY
 
-    detail = ", ".join(tried) if tried else f"neither {NIRI_SOCKET_ENV} nor {SWAY_SOCKET_ENV} set"
+    umbriel_sock = _umbriel_auto_socket()
+    if umbriel_sock:
+        tried.append(f"umbriel socket={umbriel_sock}")
+        if _probe_umbriel(umbriel_sock):
+            return _umbriel_client(), UMBRIEL
+
+    detail = ", ".join(tried) if tried else "no compositor socket set"
     raise RuntimeError(
         f"--compositor auto found no reachable compositor (tried: {detail}); "
-        "pass --compositor sway|niri explicitly, or check the socket is live"
+        "pass --compositor sway|niri|umbriel explicitly, or check the socket is live"
     )
 
 
@@ -120,6 +131,34 @@ def _close_i3ipc(conn: object) -> None:
             sock.close()
 
 
+def _probe_umbriel(sock_path: str) -> bool:
+    """Connect-validate umbriel via the subscribe round-trip (bounded, F-5)."""
+    from panopticon.compositor.umbriel import protocol
+
+    try:
+        return asyncio.run(protocol.probe(sock_path, connect_timeout=_PROBE_TIMEOUT))
+    except Exception:  # any connect/timeout/empty failure → not reachable
+        return False
+
+
+def _umbriel_auto_socket() -> str | None:
+    """The umbriel socket for the auto probe, or ``None`` if it can't be resolved
+    without fabricating a ``.../umbriel-None.sock`` (DL-8: auto skips umbriel then).
+
+    Eligible when ``$UMBRIEL_SOCKET`` is set, or both ``$XDG_RUNTIME_DIR`` and
+    ``$WAYLAND_DISPLAY`` are set (so the derived path is well-formed).
+    """
+    from panopticon.compositor.umbriel import protocol
+
+    if os.environ.get(protocol.UMBRIEL_SOCKET_ENV):
+        return os.environ[protocol.UMBRIEL_SOCKET_ENV]
+    if os.environ.get(protocol.XDG_RUNTIME_DIR_ENV) and os.environ.get(
+        protocol.WAYLAND_DISPLAY_ENV
+    ):
+        return protocol.resolve_socket()
+    return None
+
+
 def _niri_client() -> CompositorClient:
     # Deferred: importing the adapter keeps the niri stack off the --help path.
     from panopticon.compositor.niri.session import NiriClient
@@ -138,3 +177,18 @@ def _sway_client() -> CompositorClient:
     from panopticon.compositor.sway._i3ipc import I3ipcSwayClient
 
     return I3ipcSwayClient()
+
+
+def _umbriel_client() -> CompositorClient:
+    # Deferred: keep the umbriel adapter off the --help path.
+    from panopticon.compositor.umbriel.protocol import resolve_socket
+    from panopticon.compositor.umbriel.session import UmbrielClient
+
+    try:
+        sock = resolve_socket()
+    except KeyError as exc:  # $UMBRIEL_SOCKET unset and a derivation var missing
+        raise RuntimeError(
+            f"--compositor umbriel requires $UMBRIEL_SOCKET, or both "
+            f"$XDG_RUNTIME_DIR and $WAYLAND_DISPLAY to derive it; {exc.args[0]} is not set"
+        ) from exc
+    return UmbrielClient(sock)

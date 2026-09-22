@@ -15,7 +15,7 @@ import json
 
 import pytest
 
-from panopticon.compositor.umbriel.protocol import frames, resolve_socket
+from panopticon.compositor.umbriel.protocol import frames, probe, resolve_socket
 
 _SUBSCRIBE = {"cmd": "subscribe", "events": ["windows", "workspaces"]}
 
@@ -69,6 +69,66 @@ def test_frames_sends_subscribe_and_yields_events(tmp_path):
         {"event": "windows", "data": []},
         {"event": "workspaces", "data": []},
     ]
+
+
+# ---- probe (connect-validate for auto-detect) -------------------------------
+
+
+def test_probe_returns_true_on_a_streaming_socket(tmp_path):
+    """A live umbriel: connect, send subscribe (no ack), read one framed line,
+    tear down, return True. The probe never streams the rest of the burst."""
+    received: list[bytes] = []
+
+    async def scenario():
+        async def handler(reader, writer):
+            received.append(await reader.readline())
+            writer.write(b'{"event":"windows","data":[]}\n')
+            writer.write(b'{"event":"workspaces","data":[]}\n')  # never read by probe
+            await writer.drain()
+            writer.close()
+
+        sock, server = await _serve(tmp_path, handler)
+        async with server:
+            return await probe(sock)
+
+    assert asyncio.run(scenario()) is True
+    assert json.loads(received[0]) == _SUBSCRIBE  # sends the subscribe request
+
+
+def test_probe_raises_on_immediate_eof(tmp_path):
+    """A socket that accepts then EOFs without streaming is not a live umbriel →
+    probe raises (detect._probe_umbriel converts the raise into 'not reachable')."""
+
+    async def scenario():
+        async def handler(reader, writer):
+            await reader.readline()
+            writer.close()  # immediate EOF, no frame
+
+        sock, server = await _serve(tmp_path, handler)
+        async with server:
+            with pytest.raises(Exception):  # noqa: B017 — any failure ⇒ not reachable
+                await probe(sock)
+
+    asyncio.run(scenario())
+
+
+def test_probe_connect_timeout_bounds_silent_socket(tmp_path):
+    """A socket that accepts but never streams must fail fast, not hang (F-5)."""
+
+    async def scenario():
+        release = asyncio.Event()
+
+        async def handler(reader, writer):
+            await reader.readline()
+            await release.wait()  # silent-but-open
+
+        sock, server = await _serve(tmp_path, handler)
+        async with server:
+            with pytest.raises((TimeoutError, asyncio.TimeoutError)):
+                await probe(sock, connect_timeout=0.05)
+            release.set()
+
+    asyncio.run(scenario())
 
 
 def test_frames_connect_timeout_bounds_silent_socket(tmp_path):

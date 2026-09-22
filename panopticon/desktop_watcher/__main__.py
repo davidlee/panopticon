@@ -28,7 +28,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--compositor",
-        choices=["auto", "sway", "niri"],
+        choices=["auto", "sway", "niri", "umbriel"],
         default="auto",
         help="which compositor adapter to use; 'auto' probes for a live one "
         "(default: auto)",

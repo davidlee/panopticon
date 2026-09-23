@@ -6,7 +6,6 @@
     flake-utils.url = "github:numtide/flake-utils";
     devshell.url = "github:numtide/devshell";
     pub.url = "github:davidlee/nix-config?dir=flakes/pub";
-    llm-agents.url = "github:numtide/llm-agents.nix";
     doctrine.url = "github:davidlee/doctrine";
   };
 
@@ -16,7 +15,6 @@
     flake-utils,
     devshell,
     pub,
-    llm-agents,
     doctrine,
   }:
     flake-utils.lib.eachDefaultSystem (system: let
@@ -63,7 +61,7 @@
         bun
       ];
 
-      agents = pub.lib.${system}.mkJailedAgents {inherit llm-agents;};
+      agents = pub.lib.${system}.mkJailedAgents {};
 
       # Expose the host niri IPC socket to the jails so the compositor/niri
       # capture path (frames() -> $NIRI_SOCKET) can reach the live compositor,

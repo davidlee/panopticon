@@ -16,11 +16,21 @@ from pathlib import Path
 import pytest
 
 from panopticon.git_poller.__main__ import main, parse_args
+from panopticon.git_poller import poller
 from panopticon.git_poller.poller import discover_repos, poll
 from panopticon.git_poller.segment import segment_line
 
 HOOK = Path("/home/david/.emacs.d/satan/bin/satan-git-post-commit")
 requires_hook = pytest.mark.skipif(not HOOK.exists(), reason="real hook absent")
+
+
+@pytest.fixture(autouse=True)
+def _fixtures_are_never_throwaway(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Fixture repos live under ``tmp_path`` (a temp root) but stand in for real
+    repos, so the production throwaway guard is disabled here.  The guard is
+    exercised explicitly by ``test_discover_skips_throwaway_toplevel`` and
+    ``test_discover_skips_symlink_into_throwaway_root``."""
+    monkeypatch.setattr(poller, "TEMP_ROOTS", ())
 
 
 # ---- helpers ----
@@ -109,6 +119,29 @@ def test_discover_skips_bare_repo(tmp_path: Path) -> None:
     dev.mkdir()
     subprocess.run(["git", "init", "-q", "--bare", str(dev / "bare.git")], check=True)
     assert discover_repos(dev) == []
+
+
+def test_discover_skips_throwaway_toplevel(tmp_path: Path) -> None:
+    """A repo whose toplevel is under a throwaway root is not activity (IT-004)."""
+    dev = tmp_path / "dev"
+    dev.mkdir()
+    repo = make_repo(dev / "scratch")
+    commit(repo, "c1", write={"a.txt": "x"})
+    assert discover_repos(dev, temp_roots=(tmp_path,)) == []
+
+
+def test_discover_skips_symlink_into_throwaway_root(tmp_path: Path) -> None:
+    """A dev-root symlink resolving into a temp root is skipped: git reports the
+    temp realpath as toplevel, so the guard sees it — and without the guard it
+    would have been polled, unlike the post-commit hook which skips it."""
+    dev = tmp_path / "dev"
+    dev.mkdir()
+    tmp_repo = make_repo(tmp_path / "temp-home" / "repo")
+    commit(tmp_repo, "c1", write={"a.txt": "x"})
+    (dev / "linked").symlink_to(tmp_repo)
+    top = Path(_run(["git", "rev-parse", "--show-toplevel"], tmp_repo).strip())
+    assert discover_repos(dev, temp_roots=(tmp_path,)) == []
+    assert discover_repos(dev, temp_roots=()) == [top]
 
 
 # ---- poll basics + dedup ----

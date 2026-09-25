@@ -16,6 +16,7 @@ import fcntl
 import logging
 import os
 import subprocess
+import tempfile
 from pathlib import Path
 
 from panopticon.git_poller.segment import (
@@ -30,6 +31,23 @@ from panopticon.store import state_dir
 log = logging.getLogger("panopticon.git")
 
 LOCK_NAME = "git-poller.lock"
+
+# Throwaway roots — test fixtures `git init` under these (IT-004).  A repo whose
+# toplevel is, or resolves under, one of them is never polled, so neither a
+# direct-child scratch repo nor a symlink from the dev root into a temp tree can
+# reach the feed.  `tempfile.gettempdir()` folds in $TMPDIR; /tmp and /var/tmp
+# always count.  `discover_repos(temp_roots=...)` overrides this (tests pass ()).
+TEMP_ROOTS: tuple[Path, ...] = tuple(
+    dict.fromkeys(
+        Path(p).resolve() for p in (tempfile.gettempdir(), "/tmp", "/var/tmp")
+    )
+)
+
+
+def _is_throwaway(path: Path, roots: tuple[Path, ...]) -> bool:
+    """True when PATH is, or lies under, one of ROOTS."""
+    resolved = path.resolve()
+    return any(resolved == root or root in resolved.parents for root in roots)
 
 
 def _git(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
@@ -53,7 +71,9 @@ def _git_ok(repo: Path, *args: str) -> str | None:
     return res.stdout.strip()
 
 
-def discover_repos(dev_root: Path) -> list[Path]:
+def discover_repos(
+    dev_root: Path, *, temp_roots: tuple[Path, ...] | None = None
+) -> list[Path]:
     """Return the toplevel path of each non-bare git work tree directly under
     ``dev_root``.
 
@@ -61,7 +81,13 @@ def discover_repos(dev_root: Path) -> list[Path]:
     whose ``.git`` is a file are handled; bare repos and non-repos are skipped.
     The returned path is git's own ``--show-toplevel`` so it matches the hook's
     ``repo`` field byte-for-byte.
+
+    A repo that is, or resolves under, a throwaway root (``TEMP_ROOTS``) is
+    skipped — test fixtures live there, and the dev root may hold a symlink into
+    one, which would otherwise turn fixture commits into ``project:`` handles
+    (IT-004).  ``temp_roots`` overrides ``TEMP_ROOTS`` for tests.
     """
+    roots = TEMP_ROOTS if temp_roots is None else temp_roots
     if not dev_root.is_dir():
         return []
     repos: list[Path] = []
@@ -77,6 +103,9 @@ def discover_repos(dev_root: Path) -> list[Path]:
         toplevel = Path(out[0])
         if toplevel.resolve() != child.resolve():
             continue  # toplevel climbed to an ancestor repo — child is not one
+        if _is_throwaway(toplevel, roots):
+            log.debug("skip throwaway repo %s", toplevel)
+            continue
         repos.append(toplevel)
     return repos
 

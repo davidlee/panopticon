@@ -22,7 +22,7 @@
         inherit system;
         overlays = [devshell.overlays.default];
       };
-      inherit (pkgs.stdenv) isLinux;
+      inherit (pkgs.stdenv.hostPlatform) isLinux;
 
       panopticon = pkgs.python3Packages.buildPythonApplication {
         pname = "panopticon";

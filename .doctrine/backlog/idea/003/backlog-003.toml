@@ -2,14 +2,14 @@ schema = "doctrine.backlog"
 version = 1
 
 id = 3
-slug = "url-query-identity"
-title = "Query stripping collapses distinct pages onto one URL (HN items, YouTube videos, searches)"
-kind = "issue"
-status = "resolved"
-resolution = "fixed"
+slug = "host-config-redaction-push"
+title = "Host config file, with redaction settings pushed to the extension over the native port"
+kind = "idea"
+status = "open"
+resolution = ""                 # seeded empty so `backlog edit` sets it in place
 created = "2026-10-01"
 updated = "2026-10-01"
-tags = ["browser", "content", "privacy", "url"]
+tags = ["browser", "config", "privacy"]
 
 # outbound-only. Cross-kind structural edges (e.g. references with a role
 # — `originates_from` for backlog→slice provenance — governed_by, related, drift) are
@@ -23,4 +23,4 @@ triggers = []                   # watched source globs: { globs, note? }
 
 [[relation]]
 label = "related"
-target = "IDE-002"
+target = "ISS-003"

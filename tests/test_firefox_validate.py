@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import json
+import re
+from pathlib import Path
+
 import pytest
 
 from panopticon.firefox_host import validate
@@ -187,3 +191,63 @@ def test_domain_lowercased() -> None:
         }
     )
     assert fields["domain"] == "example.com"
+
+
+def _redacted_url(url: str) -> str:
+    _, _, fields = validate.validate_and_redact(
+        {"event": "browser_navigation", "ts": "t", "url": url}
+    )
+    return fields["url"]
+
+
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    [
+        (
+            "https://news.ycombinator.com/item?id=123#c_456",
+            "https://news.ycombinator.com/item?id=123",
+        ),
+        (
+            "https://www.youtube.com/watch?t=42&v=abc&list=PL1",
+            "https://www.youtube.com/watch?v=abc",
+        ),
+        ("https://youtube.com/watch?v=abc", "https://youtube.com/watch?v=abc"),
+        ("https://m.youtube.com/watch?v=abc", "https://m.youtube.com/watch?v=abc"),
+        ("https://WWW.YouTube.com/watch?v=abc", "https://WWW.YouTube.com/watch?v=abc"),
+    ],
+)
+def test_identity_params_kept_for_listed_hosts(url: str, expected: str) -> None:
+    assert _redacted_url(url) == expected
+
+
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    [
+        # listed host, identity param absent
+        (
+            "https://news.ycombinator.com/item?goto=news",
+            "https://news.ycombinator.com/item",
+        ),
+        # identity param name on an unlisted host
+        ("https://example.com/item?id=1&v=2", "https://example.com/item"),
+        # search terms stay stripped
+        ("https://www.google.com/search?q=secret", "https://www.google.com/search"),
+        (
+            "https://www.youtube.com/results?search_query=secret",
+            "https://www.youtube.com/results",
+        ),
+    ],
+)
+def test_other_query_params_still_stripped(url: str, expected: str) -> None:
+    assert _redacted_url(url) == expected
+
+
+def test_extension_identity_params_match_host() -> None:
+    """The extension's first-pass map must equal the host's (ISS-003)."""
+    js = (
+        Path(__file__).parent.parent / "firefox-extension" / "background.js"
+    ).read_text()
+    m = re.search(r"const IDENTITY_PARAMS = (\{.*?\});", js, re.DOTALL)
+    assert m, "IDENTITY_PARAMS not found in background.js"
+    ext = {host: tuple(names) for host, names in json.loads(m.group(1)).items()}
+    assert ext == dict(validate.IDENTITY_PARAMS)

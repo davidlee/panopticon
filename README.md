@@ -110,7 +110,8 @@ See [`docs/schema.md`](docs/schema.md) for the full reference and
 ## Privacy
 
 - No keystrokes, clipboard, or screenshots.
-- URLs stripped to `scheme://host/path` (query + fragment removed).
+- URLs stripped to `scheme://host/path` (fragment and query removed, except
+  per-host identity params: HN `id`, YouTube `v`).
 - Incognito tabs and sensitive schemes (`about:`, `moz-extension:`,
   `data:`, etc.) dropped at both extension and host.
 - Redaction applied twice (extension → host) so a buggy extension

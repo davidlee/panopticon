@@ -36,8 +36,10 @@ Redaction policy lives downstream:
 
 Captures:
 
-- the URL `scheme://host/path` of the active tab (query and fragment
-  stripped before emission)
+- the URL `scheme://host/path` of the active tab (fragment and query
+  stripped before emission, except a short per-host list of params that
+  identify the page — `news.ycombinator.com` `id`, YouTube `v`; search
+  terms and every other param are still stripped)
 - domain (lowercased)
 - tab title (verbatim, same caveats as sway window titles)
 - window id, tab id, audible / muted / pinned flags

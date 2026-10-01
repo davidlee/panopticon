@@ -26,6 +26,17 @@ const SENSITIVE_SCHEMES = new Set([
   "file:",
 ]);
 
+// Query params that *are* a page's identity, kept through redaction for
+// the listed hosts only; every other param is still stripped. Must equal
+// IDENTITY_PARAMS in panopticon/firefox_host/validate.py — a host test
+// parses this literal, so keep it strict JSON (ISS-003).
+const IDENTITY_PARAMS = {
+  "news.ycombinator.com": ["id"],
+  "www.youtube.com": ["v"],
+  "youtube.com": ["v"],
+  "m.youtube.com": ["v"]
+};
+
 const STATE_KEY = "panopticon.state";
 const RECONNECT_MIN_MS = 1000;
 const RECONNECT_MAX_MS = 30000;
@@ -110,12 +121,18 @@ function isSensitiveUrl(url) {
   return false;
 }
 
+function identityQuery(host, params) {
+  const keep = IDENTITY_PARAMS[host] || [];
+  const pairs = [...params].filter(([k]) => keep.includes(k)).sort();
+  return new URLSearchParams(pairs).toString();
+}
+
 function redact(url) {
   if (isSensitiveUrl(url)) return null;
   try {
     const u = new URL(url);
     if (u.protocol !== "http:" && u.protocol !== "https:") return null;
-    u.search = "";
+    u.search = identityQuery(u.hostname, u.searchParams);
     u.hash = "";
     return { url: u.toString(), domain: u.hostname.toLowerCase() };
   } catch (e) {
@@ -175,17 +192,9 @@ function recordExtractedUrl(url) {
 }
 
 function isUrlExtracted(url) {
-  if (!url) return false;
-  // Check both full URL and scheme://host/path stripped version.
-  if (extractedUrls.has(url)) return true;
-  try {
-    const u = new URL(url);
-    u.search = "";
-    u.hash = "";
-    return extractedUrls.has(u.toString());
-  } catch (e) {
-    return false;
-  }
+  // Recorded URLs are redacted; compare like with like.
+  const r = redact(url);
+  return r !== null && extractedUrls.has(r.url);
 }
 
 browser.runtime.onMessage.addListener((msg) => {

@@ -27,6 +27,7 @@ meaning (segments, joins with Sway focus, histograms). See
 - `about:`, `moz-extension:`, `chrome:`, `resource:`, `view-source:`,
   `data:`, `blob:`, `javascript:`, and `file:` URLs
 - Query strings and fragments — stripped before emission, again at the host
+  (except per-host identity params: HN `id`, YouTube `v`)
 
 ## Install
 

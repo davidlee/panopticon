@@ -85,8 +85,9 @@ per-window events. Its `window_id` is an opaque string.
 
 Emitted by the Firefox WebExtension and re-stamped to `source="firefox"`
 by `panopticon-firefox-host`. URLs are redacted to `scheme://host/path`
-(query + fragment stripped); sensitive schemes are dropped at both the
-extension and the host.
+(fragment and query stripped, except the host's identity params —
+`news.ycombinator.com` `id`, YouTube `v`; see `IDENTITY_PARAMS`);
+sensitive schemes are dropped at both the extension and the host.
 
 - `browser_snapshot` — extension startup; carries the current active
   tab.

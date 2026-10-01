@@ -9,7 +9,7 @@ filter. All functions are pure.
 from __future__ import annotations
 
 from typing import Any
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 SENSITIVE_SCHEMES = frozenset(
     {
@@ -23,6 +23,17 @@ SENSITIVE_SCHEMES = frozenset(
         "javascript",
     }
 )
+
+# Query params that *are* a page's identity, kept through redaction for
+# the listed hosts only; every other param (tokens, search terms) is still
+# stripped. Mirrored in firefox-extension/background.js — parity is
+# test-enforced (ISS-003).
+IDENTITY_PARAMS: dict[str, tuple[str, ...]] = {
+    "news.ycombinator.com": ("id",),
+    "www.youtube.com": ("v",),
+    "youtube.com": ("v",),
+    "m.youtube.com": ("v",),
+}
 
 ALLOWED_EVENT_TYPES = frozenset(
     {
@@ -86,7 +97,8 @@ def validate_and_redact(
 
 
 def _redact_url(url: str, *, record_file_urls: bool) -> str | None:
-    """Strip query+fragment; drop sensitive schemes. Returns ``None`` to drop."""
+    """Strip fragment and query, except the host's identity params; drop
+    sensitive schemes. Returns ``None`` to drop."""
     try:
         parts = urlsplit(url)
     except ValueError:
@@ -98,7 +110,14 @@ def _redact_url(url: str, *, record_file_urls: bool) -> str | None:
         return None
     if scheme not in ("http", "https", "ftp", "file"):
         return None
-    return urlunsplit((scheme, parts.netloc, parts.path, "", ""))
+    query = _identity_query(parts.hostname, parts.query)
+    return urlunsplit((scheme, parts.netloc, parts.path, query, ""))
+
+
+def _identity_query(host: str | None, query: str) -> str:
+    keep = IDENTITY_PARAMS.get(host or "", ())
+    pairs = parse_qsl(query, keep_blank_values=True)
+    return urlencode(sorted((k, v) for k, v in pairs if k in keep))
 
 
 def _domain_of(url: str) -> str | None:

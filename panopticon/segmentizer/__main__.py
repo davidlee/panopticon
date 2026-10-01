@@ -17,11 +17,11 @@ from __future__ import annotations
 import argparse
 import json
 import logging
-import os
 import sys
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
 
+from panopticon.fsutil import atomic_write_text
 from panopticon.schema import Event, iter_jsonl
 from panopticon.segmentizer.browser import derive_browser_segments
 from panopticon.segmentizer.derive import derive_segments
@@ -76,7 +76,7 @@ def run(root: Path, *, today: date) -> None:
                 close_at = events[-1].ts
             segs = list(derive(events, source=raw_prefix, close_at=close_at))
             seg_path = root / "segments" / f"{seg_prefix}-{day_str}.jsonl"
-            _atomic_write_text(
+            atomic_write_text(
                 seg_path, "".join(s.to_json_line() + "\n" for s in segs)
             )
             log.info("%s %s: %d segments", seg_prefix, day_str, len(segs))
@@ -88,7 +88,7 @@ def run(root: Path, *, today: date) -> None:
         h = aggregate(focus_segs, day=day_str)
         h.update(aggregate_browser(browser_segs, day=day_str))
         hist_path = root / "histograms" / f"daily-{day_str}.json"
-        _atomic_write_text(
+        atomic_write_text(
             hist_path, json.dumps(h, separators=(",", ":"), ensure_ascii=False)
         )
         log.info("histogram %s", day_str)
@@ -160,13 +160,6 @@ def _next_day_midnight(day: date, sample_ts: str) -> str:
     dt = datetime.fromisoformat(sample_ts)
     midnight = datetime.combine(day + timedelta(days=1), time.min, tzinfo=dt.tzinfo)
     return midnight.isoformat(timespec="milliseconds")
-
-
-def _atomic_write_text(path: Path, content: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
-    tmp.write_text(content, encoding="utf-8")
-    os.replace(tmp, path)
 
 
 if __name__ == "__main__":

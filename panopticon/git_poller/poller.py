@@ -12,13 +12,13 @@ same atomic ``O_APPEND`` discipline as :class:`panopticon.store.RawStore`.
 
 from __future__ import annotations
 
-import fcntl
 import logging
 import os
 import subprocess
 import tempfile
 from pathlib import Path
 
+from panopticon.fsutil import exclusive_lock
 from panopticon.git_poller.segment import (
     Candidate,
     parse_candidates,
@@ -213,16 +213,8 @@ def poll(dev_root: Path, state_root: Path | None = None, *, since: str = "7.days
     """
     root = state_root if state_root is not None else state_dir()
     root.mkdir(parents=True, exist_ok=True)
-    lock_fd = os.open(root / LOCK_NAME, os.O_WRONLY | os.O_CREAT | os.O_CLOEXEC, 0o644)
-    try:
-        try:
-            fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
+    with exclusive_lock(root / LOCK_NAME) as acquired:
+        if not acquired:
             log.info("another poll holds the lock; skipping")
             return 0
-        try:
-            return _poll_unlocked(dev_root, root, since)
-        finally:
-            fcntl.flock(lock_fd, fcntl.LOCK_UN)
-    finally:
-        os.close(lock_fd)
+        return _poll_unlocked(dev_root, root, since)

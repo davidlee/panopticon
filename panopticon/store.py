@@ -14,6 +14,7 @@ import os
 from pathlib import Path
 from typing import Any
 
+from panopticon.fsutil import atomic_write_text
 from panopticon.schema import Event
 
 
@@ -66,15 +67,10 @@ class RawStore:
         Consumers polling the current-state file never see a partial
         write; the rename is atomic on the same filesystem.
         """
-        self._write_current_file(self.source, payload)
-
-    def _write_current_file(self, name: str, payload: dict[str, Any]) -> None:
-        target = self._current_path_for(name)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        tmp = target.with_name(f".{target.name}.{os.getpid()}.tmp")
-        with open(tmp, "w", encoding="utf-8") as fh:
-            json.dump(payload, fh, separators=(",", ":"), ensure_ascii=False)
-        os.replace(tmp, target)
+        atomic_write_text(
+            self._current_path_for(self.source),
+            json.dumps(payload, separators=(",", ":"), ensure_ascii=False),
+        )
 
     def close(self) -> None:
         if self._fd is not None:

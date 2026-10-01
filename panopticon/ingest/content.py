@@ -17,12 +17,12 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from panopticon.fsutil import atomic_write_text
 from panopticon.store import state_dir
 
 _CONTENT_DIR = "content"
@@ -157,13 +157,13 @@ class ContentStore:
             "quality_score": round(quality, 3),
         }
         json_path = shard_dir / f"{ch}.json"
-        _atomic_write_text(json_path, json.dumps(raw, separators=(",", ":"), ensure_ascii=False))
+        atomic_write_text(json_path, json.dumps(raw, separators=(",", ":"), ensure_ascii=False))
 
         # Convert HTML to Markdown.
         md = _html_to_markdown(content_html, url)
         md_path = shard_dir / f"{ch}.md"
         frontmatter = _render_frontmatter(raw)
-        _atomic_write_text(md_path, frontmatter + "\n" + md)
+        atomic_write_text(md_path, frontmatter + "\n" + md)
 
         # Check de-duplication: same hash → skip.
         if _index_has_hash(index_path, ch):
@@ -251,10 +251,3 @@ def _read_index(path: Path) -> list[dict[str, Any]]:
                 except json.JSONDecodeError:
                     pass
     return entries
-
-
-def _atomic_write_text(path: Path, content: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
-    tmp.write_text(content, encoding="utf-8")
-    os.replace(tmp, path)

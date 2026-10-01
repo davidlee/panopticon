@@ -9,10 +9,11 @@ it. This module renders that manifest and writes it (or prints it).
 from __future__ import annotations
 
 import json
-import os
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
+
+from panopticon.fsutil import atomic_write_text
 
 HOST_NAME = "panopticon_firefox"
 EXTENSION_ID = "panopticon-firefox@panopticon.local"
@@ -80,8 +81,5 @@ def install(
     host_binary = resolve_host_binary(binary)
     manifest = build_manifest(host_binary, extension_id=extension_id)
     target = manifest_path or default_manifest_path()
-    target.parent.mkdir(parents=True, exist_ok=True)
-    tmp = target.with_name(f".{target.name}.{os.getpid()}.tmp")
-    tmp.write_text(manifest.to_json() + "\n", encoding="utf-8")
-    os.replace(tmp, target)
+    atomic_write_text(target, manifest.to_json() + "\n")
     return target

@@ -24,7 +24,13 @@ sign-extension:
     @test -n "${WEB_EXT_API_KEY:-}" -a -n "${WEB_EXT_API_SECRET:-}" || { echo "set WEB_EXT_API_KEY and WEB_EXT_API_SECRET" >&2; exit 1; }
     web-ext sign --source-dir {{ext}} --channel unlisted
 
+# Exit 0 = downloaded, 2 = still pending, 1 = rejected/unknown. Same credentials.
+# Are we there yet? Check a submitted version (default: manifest's); fetch the .xpi once signed.
+fetch-extension version="":
+    uv run python -m panopticon.amo {{ext}}/manifest.json {{version}}
+
 install-manifest:
     panopticon-firefox-host install-manifest
 
 alias sign := sign-extension
+alias fetch := fetch-extension

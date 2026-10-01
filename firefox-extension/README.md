@@ -79,6 +79,17 @@ From File**.
 - Bump `version` in `manifest.json` first — AMO rejects a version it has
   already seen.
 
+If `sign` gives up before AMO signs the version, don't re-run it (AMO now
+holds that version). Check on it instead:
+
+```bash
+just fetch-extension          # manifest's version
+just fetch-extension 0.2.2    # or an earlier submission
+```
+
+One-shot: downloads the signed `.xpi` into `web-ext-artifacts/` (exit 0),
+or reports it is still pending (exit 2) or rejected / unknown (exit 1).
+
 ### 3. Confirm events are flowing
 
 After browsing for a minute or two:

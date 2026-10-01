@@ -1,0 +1,12 @@
+[Unit]
+Description=panopticon — opt-in page digest (the sole network egress; DEC-002)
+
+[Service]
+Type=oneshot
+ExecStart=panopticon-digest
+# Supplies the API key (e.g. OPENROUTER_API_KEY=…). Fixed at ~/.config:
+# systemd cannot honour XDG_CONFIG_HOME here. Optional: without it the run
+# exits 2 once enabled, and does nothing at all while disabled.
+EnvironmentFile=-%h/.config/panopticon/digest.env
+# Breakers bound the worst case well under this (design §5.4).
+TimeoutStartSec=2h

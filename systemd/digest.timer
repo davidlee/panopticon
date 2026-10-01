@@ -1,0 +1,10 @@
+[Unit]
+Description=panopticon — daily page digest (shipped disabled; also needs enabled = true in digest.toml)
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+RandomizedDelaySec=30min
+
+[Install]
+WantedBy=timers.target

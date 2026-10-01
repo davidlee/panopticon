@@ -1,0 +1,42 @@
+memory_uid = "mem_01a0f7f108977b908a42a809a1d7a6c1"
+memory_key = "mem.fact.panopticon.ruff-format-not-enforced"
+schema_version = 1
+memory_type = "fact"
+status = "active"
+title = "ruff format is not enforced in panopticon"
+summary = "panopticon does not enforce ruff format; never run it repo-wide — format only the files you changed"
+created = "2026-10-01"
+updated = "2026-10-01"
+
+[scope]
+paths = []
+globs = []
+commands = ["ruff format"]
+tags = ["tooling"]
+workspace = "default"
+repo = "github.com/davidlee/panopticon"
+repo_id_kind = "remote"
+repo_id_confidence = "high"
+
+[git]
+anchor_kind = "commit"
+commit = "1121e6c43fbab5c186890cb3d321d59b3ff5c41d"
+tree = "414634c8aca64bd99794db9d36964ff216c31d2d"
+ref_name = "refs/heads/main"
+checkout_state_id = ""
+base_commit = "1121e6c43fbab5c186890cb3d321d59b3ff5c41d"
+verified_sha = ""
+normalizer = ""
+
+[review]
+verification_state = "unverified"
+reviewed = ""
+review_by = ""
+
+[trust]
+trust_level = "medium"
+
+[ranking]
+severity = "none"
+weight = 0
+

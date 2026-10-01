@@ -10,6 +10,26 @@ tags = []
 needs = []                      # slice→work hard prerequisite
 after = []                      # slice→work soft sequence: { to, rank }
 
+[[selector]]
+selector = "panopticon/digest/prompt.py"
+intent = "design-target"
+note = "design §5: prompt vocabulary + README record description"
+
+[[selector]]
+selector = "README.md"
+intent = "design-target"
+note = "design §5: prompt vocabulary + README record description"
+
+[[selector]]
+selector = "tests/test_digest_prompt.py"
+intent = "scope-relevant"
+note = "TDD suites"
+
+[[selector]]
+selector = "tests/test_digest_main.py"
+intent = "scope-relevant"
+note = "TDD suites"
+
 [[relation]]
 label = "references"
 role = "originates_from"

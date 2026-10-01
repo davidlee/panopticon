@@ -15,8 +15,8 @@ from pathlib import Path
 
 import pytest
 
-from panopticon.git_poller.__main__ import main, parse_args
 from panopticon.git_poller import poller
+from panopticon.git_poller.__main__ import main, parse_args
 from panopticon.git_poller.poller import discover_repos, poll
 from panopticon.git_poller.segment import segment_line
 

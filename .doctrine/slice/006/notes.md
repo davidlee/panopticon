@@ -125,3 +125,48 @@ For PHASE-04:
   aggregates.
 - The README needs: the binary table row, config, enabling the timer, the
   `digest.env` path note, and that digests are untrusted text.
+
+## PHASE-04 docs, corpus dry-run (2026-10-01)
+
+Docs (EX-1, VA-1): README and `docs/privacy.md` now state the DEC-002 egress.
+Capture is network-free; `panopticon-digest` is the sole opt-in egress. They
+list exactly what leaves the host: host, title and truncated `text_content`.
+VA-1 self-check: I2 holds, since only `digest/client.py` imports a network
+module. `prompt.Page` carries exactly the three I1 fields. The path, query
+and links are never sent (D11).
+
+Corpus dry-run (VA-2): 2462 index rows over 123 days. Exit 0, no network,
+nothing written. Aggregates only:
+
+| verdict       | as designed | + D16 defaults |
+|---------------|------------:|---------------:|
+| pass          | 1457 | 1454 |
+| superseded    |  387 |  387 |
+| denied_domain |  306 |  309 |
+| too_short     |  230 |  230 |
+| low_quality   |   60 |   60 |
+| local_host    |   22 |   22 |
+
+- **OQ-3 → keep `min_quality = 0.7`.** The quality score takes only the values
+  0.4, 0.7 and 1.0. Among rows that pass every other rule, 1369 score 1.0,
+  88 score 0.7 and 4 score 0.4.
+- **OQ-2 → keep `max_input_chars = 24000`.** Passing pages, in chars: p50
+  8.3k, p75 15.7k, p90 28.4k, p95 41k, p99 90k, max 246k. The cap truncates
+  197 of 1457 pages (13.5%). A full backfill at the cap is ~15.3M chars,
+  about 3.8M input tokens. Re-check cost once VH-1 fixes the model.
+- **OQ-4 → the host list held.** Every `denied_domain` came from
+  `DEFAULT_DENY`. The gaps were path-shaped (private paths on public hosts)
+  or user-specific (an employer's hosts and code-host org). Neither can be
+  expressed domain-only without denying a whole widely used host.
+- **OQ-5 → path rules yes (D16), cooldown no.** 1408 of 1457 passing URLs
+  have one SHA; about 16 have 3 or more.
+
+D16 implementation: `gate.normalise_deny_entry` gives the `host[/path]`
+canonical form and `_normalise_path` decodes, lowercases and drops empty
+segments, so matching fails closed. `config._is_list_of` and `_normalised`
+replace the separate host-list helpers. `DEFAULT_DENY` gains 10 path entries:
+messages, account settings, checkout.
+
+Advice for the user's own `deny` (not committed as config): the employer's
+domain and code-host org. Simulated, the two entries hold back a further 31
+pages (pass 1454 → 1423).

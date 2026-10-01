@@ -79,10 +79,13 @@ model never decides whether text may reach a model. A page is held back if:
 - its URL does not parse, its scheme is not `http`/`https`, or it has no host;
 - its host is local: an IP literal, a single-label name, `localhost`, or under
   `.local`, `.lan`, `.internal` or `.home.arpa`;
-- its host is on, or under, a deny entry: the built-in list (mail, banking and
-  payments, chat, AI chat, office suites and file stores, auth and password
-  managers, search engines, Australian government services) plus the user's
-  `deny` list;
+- it matches a deny entry: the built-in list (mail, banking and payments,
+  chat, AI chat, office suites and file stores, auth and password managers,
+  search engines, Australian government services, plus private paths on
+  public hosts such as messages, account settings and checkout) plus the
+  user's `deny` list. An entry is a host, matching it and its subdomains, or
+  a host with a path prefix (`github.com/my-employer`), matching only under
+  that path;
 - an `allow` list is set and the host is not on, or under, an entry (allow
   only narrows; it never overrides a deny entry);
 - its extraction quality is below `min_quality`, or its text is shorter than

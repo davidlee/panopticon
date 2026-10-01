@@ -220,7 +220,9 @@ enabled = true
 max_pages_per_run = 50
 
 [gate]
-deny = ["mybank.example"]    # added to the built-in denylist
+deny = ["mybank.example", "github.com/my-employer"]
+                             # added to the built-in denylist; a host, or
+                             # host/path to deny only under that path
 # allow = ["lwn.net"]        # optional; when set, only these hosts pass
 min_chars = 1500
 min_quality = 0.7

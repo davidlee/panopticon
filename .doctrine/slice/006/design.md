@@ -176,7 +176,7 @@ enabled = true
 max_pages_per_run = 50
 
 [gate]
-deny  = ["mybank.example"]   # always applied, on top of DEFAULT_DENY
+deny  = ["mybank.example", "github.com/acme"]   # on top of DEFAULT_DENY; host or host/path (D16)
 # allow = ["lwn.net", …]     # optional; when present, only these hosts pass
 min_chars = 1500
 min_quality = 0.7            # = at most one quality penalty (OQ-3)
@@ -194,9 +194,10 @@ max_output_tokens = 1500
   rule. `endpoint` must be `https`, and `model` is required.
 - **Typed fields.** Numeric fields reject `bool`, because `tomllib` yields
   `True` and `bool` is a subclass of `int`. They must be positive.
-- **Domain normalisation.** Every `deny` and `allow` entry goes through
-  `normalise_host`. An entry that does not normalise, including any non-ASCII
-  entry, is a config error.
+- **Domain normalisation.** Every `allow` entry goes through `normalise_host`.
+  Every `deny` entry goes through `normalise_deny_entry` (a host, optionally
+  followed by a `/path` prefix; D16). An entry that does not normalise,
+  including any non-ASCII host, is a config error.
 - **Secrets.** Keys come only from the env var named by `api_key_env`. The unit
   supplies it with `EnvironmentFile=`.
 - **Allow narrows, never widens (D4).** `deny` (`DEFAULT_DENY` plus the user's
@@ -216,7 +217,7 @@ non-numeric quality, or an unparseable or naive `captured_at`; user,
 | `bad_scheme`    | scheme is not `http`/`https` (rejects `file`, `ftp`)                      |
 | `no_host`       | URL has no hostname                                                       |
 | `local_host`    | IP literal (v4/v6); single-label host (no dot); `localhost`; `*.local`, `*.lan`, `*.internal`, `*.home.arpa` |
-| `denied_domain` | host is a `deny` entry or under one                                       |
+| `denied_domain` | host is a `deny` entry's host or under it, and the URL path is under that entry's path prefix, if it has one (D16) |
 | `not_allowed`   | `allow` is set and the host is neither an entry nor under one             |
 | `low_quality`   | `quality_score < min_quality`                                             |
 | `too_short`     | `length < min_chars` (checked once `length` is known)                     |
@@ -232,6 +233,10 @@ non-numeric quality, or an unparseable or naive `captured_at`; user,
   - A deny entry for a non-ASCII domain is written in its punycode form.
 - **Label-boundary matching.** `bank.com` matches `bank.com` and `www.bank.com`,
   but not `evilbank.com`.
+- **Segment-boundary path matching (D16).** `github.com/acme` matches
+  `/acme` and `/acme/repo`, but not `/acme2` or `/other/acme`. Both the entry
+  and the URL path are percent-decoded, lowercased, and stripped of empty
+  segments before comparing. Comparing more loosely makes deny fail closed.
 - **`DEFAULT_DENY`** is a `frozenset` in `gate.py`. It lists generic categories
   only (OQ-4): mail, banking, chat, AI-chat apps, office suites, calendars,
   search engines, and auth/SSO hosts.
@@ -416,9 +421,13 @@ every property as `required`:
   is config.
 - **OQ-2:** `max_input_chars`. 24k chars covers roughly the p90 page (27 KB).
   Confirm against the model's context window and cost.
+  **PHASE-04:** keep 24k. Passing pages are 28.4k chars at p90; the cap
+  truncates 13.5% of them. A full backfill is about 3.8M input tokens.
 - **OQ-3:** `min_quality`. With `min_chars ≥ 500`, 0.7 means "at most one
   penalty" (no title, link-heavy, or short lines). Check 0.7 against 0.4 with
   `--dry-run` on the real corpus.
+  **PHASE-04:** keep 0.7. The score only takes the values 0.4, 0.7 and 1.0.
+  Lowering the threshold to 0.4 admits 4 more pages out of 1457.
 - **OQ-4 (settled at plan, 2026-10-01; coverage still to be checked with
   `--dry-run` in PHASE-04):** `DEFAULT_DENY` holds generic, widely used hosts by
   category, none drawn from the user's history. Matching is by suffix, so
@@ -442,8 +451,18 @@ every property as `required`:
   Two consequences: `google.com` subsumes `gemini.google.com`, which is listed
   anyway for clarity, and `live.com` subsumes the `outlook`/`onedrive`/`teams`
   `live.com` entries. Both are deliberate.
-- **OQ-5:** Path rules or a per-URL cooldown. The design is domain-only; add
-  either only if dry-run data asks for it.
+- **OQ-5 (settled in PHASE-04, 2026-10-01):** Path rules or a per-URL
+  cooldown.
+  - Path rules: **yes** (D16). The dry-run found private surfaces under paths
+    of otherwise public hosts: a private GitHub org, LinkedIn messaging, and a
+    checkout page.
+  - Cooldown: **no**. Churn is low: 1408 of 1457 passing URLs have a single
+    SHA, and about 16 have 3 or more.
+- **OQ-4 coverage outcome (PHASE-04):** the host list held; every
+  `denied_domain` came from it. Gaps were path-shaped or user-specific. The
+  path-shaped ones (messages, account settings, checkout) join `DEFAULT_DENY`
+  as path entries (D16). User-specific ones (an employer's hosts and GitHub
+  org) belong in the user's `deny`.
 
 ## 7. Decisions, Rationale & Alternatives
 
@@ -536,6 +555,21 @@ config change applies retroactively.
   tripwire needs no exemption and the README/DEC-002 "sole egress" statement
   is literally true. Dev tooling outside the package is not part of the
   runtime invariant.
+
+**D16: A deny entry may carry a path prefix** (user, 2026-10-01; settles
+OQ-5's path half).
+- The form is `host/path`, e.g. `github.com/acme`. It matches where the host
+  rule matches **and** the URL path is the prefix or under it (segment
+  boundary). A bare host still denies the whole host.
+- Matching is local. The path is still never sent (D11).
+- Entries stay strings in `GateConfig.deny`, so the type is unchanged. `allow`
+  stays host-only: a path in `allow` is a config error.
+- Reason stays `denied_domain`, which keeps dry-run output stable.
+- Rejected:
+  - domain-only, which forces denying a whole code host (hundreds of useful
+    pages) to protect one private org;
+  - a separate `deny_paths` key, which is a second list with the same
+    meaning.
 
 **D14: Fail markers are written only in a run that proved the provider
 healthy.**

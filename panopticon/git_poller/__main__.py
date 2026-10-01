@@ -11,6 +11,7 @@ import argparse
 import logging
 from pathlib import Path
 
+from panopticon.cli import configure_logging
 from panopticon.git_poller.poller import poll
 from panopticon.store import state_dir
 
@@ -53,11 +54,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
-    level = max(logging.WARNING - args.verbose * 10, logging.DEBUG)
-    logging.basicConfig(
-        level=level,
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-    )
+    configure_logging(args.verbose)
     root = args.state_dir if args.state_dir is not None else state_dir()
     n = poll(args.dev_root, root, since=args.since)
     log.info("git poll complete: %d segment(s) emitted", n)

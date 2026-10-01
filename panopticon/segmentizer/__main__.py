@@ -21,6 +21,7 @@ import sys
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
 
+from panopticon.cli import configure_logging
 from panopticon.fsutil import atomic_write_text
 from panopticon.schema import Event, iter_jsonl
 from panopticon.segmentizer.browser import derive_browser_segments
@@ -46,7 +47,7 @@ _SOURCES = (
 
 def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
-    _configure_logging(args.verbose)
+    configure_logging(args.verbose)
     root = args.root or state_dir()
     today = args.now or date.today()
     run(root, today=today)
@@ -123,18 +124,6 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         help="-v INFO, -vv DEBUG",
     )
     return p.parse_args(argv)
-
-
-def _configure_logging(verbose: int) -> None:
-    level = logging.WARNING
-    if verbose == 1:
-        level = logging.INFO
-    elif verbose >= 2:
-        level = logging.DEBUG
-    logging.basicConfig(
-        level=level,
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-    )
 
 
 def _day_from_name(name: str) -> str | None:

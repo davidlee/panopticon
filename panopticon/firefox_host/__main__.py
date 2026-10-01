@@ -21,6 +21,7 @@ import sys
 from pathlib import Path
 from typing import Any, BinaryIO
 
+from panopticon.cli import configure_logging
 from panopticon.firefox_host import install as install_mod
 from panopticon.firefox_host import protocol, validate
 from panopticon.ingest.content import content_dir
@@ -32,7 +33,7 @@ log = logging.getLogger("panopticon.firefox_host")
 
 def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
-    _configure_logging(args.verbose)
+    configure_logging(args.verbose)
 
     if args.command == "install-manifest":
         return _cmd_install_manifest(args)
@@ -217,19 +218,6 @@ def _print_run_help() -> None:
         "$XDG_STATE_HOME/behaviour/raw/firefox-YYYY-MM-DD.jsonl. Designed to be\n"
         "launched by Firefox as a native messaging host; extra positional\n"
         "arguments (manifest path, extension id) are ignored.\n"
-    )
-
-
-def _configure_logging(verbose: int) -> None:
-    level = logging.WARNING
-    if verbose == 1:
-        level = logging.INFO
-    elif verbose >= 2:
-        level = logging.DEBUG
-    logging.basicConfig(
-        level=level,
-        stream=sys.stderr,
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
 
 

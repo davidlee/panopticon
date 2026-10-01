@@ -12,10 +12,10 @@ from __future__ import annotations
 import argparse
 import asyncio
 import contextlib
-import logging
 import signal
 from pathlib import Path
 
+from panopticon.cli import configure_logging
 from panopticon.compositor.detect import select_client
 from panopticon.compositor.runner import run_watcher
 from panopticon.store import RawStore
@@ -52,11 +52,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
-    level = max(logging.WARNING - args.verbose * 10, logging.DEBUG)
-    logging.basicConfig(
-        level=level,
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-    )
+    configure_logging(args.verbose)
 
     client, _producer = select_client(args.compositor)
     store = RawStore("desktop", args.state_dir)

@@ -34,7 +34,8 @@ Ground truth (2026-10-01):
 
 ## Scope & Objectives
 
-A new console script `panopticon-digest` with four stages, each independently
+A new console script `panopticon-digest`. This slice delivers stages 1 and 3;
+2 and 4 are follow-up slices (design D1). Four stages, each independently
 re-runnable, each output stored separately and keyed by content SHA:
 
 1. **Gate** — deterministic, local, before any egress: domain denylist (optional
@@ -50,8 +51,10 @@ re-runnable, each output stored separately and keyed by content SHA:
 
 Plus:
 
-- `digest/` beside `content/`: per-SHA records per stage + `.jsonl` indexes,
-  mirroring the content-store layout.
+- `digest/` beside `content/`: per-SHA records per stage, sharded like the
+  content store (no index until a consumer needs one; design D12).
+- Delete the dead network extractor `ingest/extractor.py` and the trafilatura
+  dependency (design D10).
 - Config + secrets loading; providers and models are config; the provider
   allowlist is the user's.
 - systemd service + timer, shipped **disabled**.

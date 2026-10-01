@@ -6,13 +6,13 @@
 
 ## 1. Design Problem
 
-Captured pages have no summary. Add an opt-in batch job, `panopticon-digest`. It
-sends gated page text to one remote model and stores a structured digest per
-content SHA. It must not weaken the invariant that **capture never touches the
-network** (DEC-002).
+Captured pages have no summary. Add an opt-in batch job, `panopticon-digest`,
+that sends gated page text to one remote model and stores a structured digest
+per content SHA. It must not weaken the invariant that **capture never touches
+the network** (DEC-002).
 
 This slice delivers **gate + digest** (D1). Triage (jev) and embedding (Voyage)
-are follow-up slices. This design only makes room for them (§5.3).
+are follow-up slices; this design only makes room for them (§5.3).
 
 ## 2. Current State
 
@@ -24,96 +24,104 @@ firefox ext ──native msg──▶ firefox_host ──▶ ContentStore.store(
 ```
 
 - **Index rows** hold `content_hash, url, domain, title, extractor, captured_at,
-  quality_score`. `length` and the body are only in `<sha>.json`.
-- **First-sighting time.** The index `captured_at` is the **first** time a SHA was
-  seen. On a duplicate, `ContentStore.store` rewrites `.json`/`.md` with the new
-  `captured_at` but skips the index. The index is authoritative here.
-- **Domain derivation.** `domain` is the lowercased hostname of the redacted URL.
-  With no hostname, `firefox_host` stores `"unknown"`. `file://` pages reach the
-  store when the host runs with `--record-file-urls`.
-- **URL redaction.** It covers only the page's own URL. Links inside the body
-  (the `.md` `href`/`src`) keep their full query strings.
-- **Page identity.** Since ISS-003 (resolved), URLs keep per-host identity params,
-  so URL → latest SHA is a valid page identity.
-- **`quality_score` is discrete:** 1.0 minus 0.3 per penalty. Penalties are a
+  quality_score`. `length` and the body exist only in `<sha>.json`.
+- **First sighting.** The index `captured_at` is the capture time the extension
+  sent with the SHA's **first** sighting. On a duplicate, `ContentStore.store`
+  rewrites `.json`/`.md` with the new `captured_at` but skips the index. The index
+  is authoritative.
+- **Domain.** `domain` is the lowercased hostname of the redacted URL; with no
+  hostname, `firefox_host` stores `"unknown"`. `file://` pages reach the store
+  when the host runs with `--record-file-urls`.
+- **URL redaction** covers only the page's own URL: query and fragment are
+  stripped, except identity params (ISS-003, resolved). It keeps the full netloc
+  (including any `user:pass@`) and the full path. Links inside the body (the
+  `.md` `href`/`src`) keep their full query strings.
+- **`quality_score` is discrete:** 1.0 minus 0.3 per penalty. The penalties are a
   missing title, link-heavy content, mostly short lines, and short text.
-- **Precedents.**
-  - `panopticon-segmentize`: a single-shot batch with `--root`, `-v` and atomic
-    writes.
-  - `panopticon-git`: a non-blocking `flock` single-instance guard.
+- **Precedents.** `panopticon-segmentize` is a single-shot batch with `--root`,
+  `-v` and atomic writes. `panopticon-git` uses a non-blocking `flock`
+  single-instance guard, which `tests/test_git_poller.py` takes directly with
+  `fcntl.flock`.
 - **Duplication.** `_atomic_write_text` is copied in `ingest/content.py` and
-  `segmentizer/__main__.py`. `RawStore._write_current_file` is a third variant.
+  `segmentizer/__main__.py`; `RawStore._write_current_file` is a third variant.
   The flock sequence is inline in `git_poller/poller.py`.
-- **Network code.** None in capture, except dead code (deleted by D10):
-  - `ingest/extractor.py` fetches URLs through trafilatura's `focused_crawler`.
-  - It has no callers outside its own test.
-  - Panopticon has no config file and no HTTP dependency.
-- **Units.** systemd user units are wired by the user's home-manager config,
-  outside this repo. The repo ships the unit files.
+- **Network code.** Capture has none, apart from dead code that D10 deletes:
+  `ingest/extractor.py` fetches URLs through trafilatura's `focused_crawler`, has
+  no callers outside its own test, and is trafilatura's only importer.
+- **No config, no HTTP dependency.** Panopticon has no config file and no HTTP
+  dependency. The README says "No network calls" (lines 11 and 119).
+- **Units.** The systemd user units are wired by the user's home-manager config,
+  outside this repo. The repo ships the unit files, and the flake builds every
+  `[project.scripts]` entry.
 
 ## 3. Forces & Constraints
 
-- **Privacy first.** The gate is deterministic and local, and it runs before any
+- **Privacy first.** The gate is deterministic and local, and runs before any
   byte leaves the host. A model never decides whether text may reach a model.
-- **Off by default, twice.** Nothing in this repo enables the timer. The binary
-  does nothing without a config file that says `enabled = true`.
+- **Off by default, twice.** Nothing in this repo enables the timer, and the
+  binary sends nothing without a config file that says `enabled = true`.
 - **One egress seam.** Exactly one module opens network connections.
-- **Pure/imperative split** (project convention): no clock, network or disk in
-  the pure layer.
-- **No new dependencies** (D2): stdlib `urllib`, `tomllib` and `json` only.
-- **Volume is tiny:** ~13 pages/day after the gate. The backfill (~2.4k pages)
-  is the only bulk case.
+- **Pure/imperative split** (project convention): the pure layer touches no
+  clock, network or disk.
+- **No new dependencies** (D2). Stdlib `urllib`, `ssl`, `tomllib` and `json`
+  only; D10 removes one dependency (trafilatura).
+- **Volume is tiny**: about 13 pages/day after the gate. The backfill
+  (about 2.4k pages) is the only bulk case.
 
 ## 4. Guiding Principles
 
-- **Store only what cost egress.** Gate verdicts are recomputed on every run, so
-  a config change takes effect without a migration.
-- **Key everything by content SHA.** A page whose content is unchanged is never
-  re-sent.
+- **Store only what cost egress.** Gate verdicts are recomputed every run, so a
+  config change applies without migration.
+- **Key everything by content SHA.** Unchanged pages are never re-sent.
 - **Text in, text out.** No agent, no harness, no provider SDK.
-- **Fail closed.** An unparseable URL, an unknown key or a missing host is a
-  rejection or an error, never a pass.
-- **Room for triage and embedding** comes from a stage-parameterised store, not
-  from further abstraction.
+- **Fail closed.** An unparseable URL, an unknown config key, a missing host or
+  an un-encodable host is a rejection or an error, never a pass.
+- **Send the minimum.** Only the host, title and body text leave the machine;
+  the URL path never does.
+- **Write less code.** Add an index, an option or a record kind only when
+  something needs it.
 
 ## 5. Proposed Design
 
 ### 5.1 System Model
 
 ```
-                 ┌──────────────── panopticon-digest (one run) ──────────────────┐
-config.toml ───▶ │ load_config ─▶ DigestConfig      (strict; fail on unknown key)│
-env (API key) ─▶ │ take lock (digest.lock)                                       │
-content index ─▶ │ latest_per_url(index) ─▶ drop digested ─▶ cheap gate          │
-                 │   (pure)                                  (scheme, host, q)   │
-<sha>.json ────▶ │ read survivors' text_content ─▶ length gate        (pure)     │
-                 │ order newest-first, take ≤ limit           ─▶ [Candidate]     │
-                 │ for each candidate:                                           │
-                 │   build_request(page, cfg)                         (pure)     │
-                 │   client.post_json(...)   ◀── the only egress (client.py)     │
-                 │   parse_digest(response) ─▶ Digest | Failure       (pure)     │
-                 │   StageStore("digest").put(record)                            │
-                 │   abort the run on auth/quota failure or N consecutive fails  │
-                 └───────────────────────────────────────────────────────────────┘
+                 ┌──────────────── panopticon-digest (one run) ───────────────────┐
+digest.toml ───▶ │ load + parse config (strict)          ─ error → exit 2         │
+                 │ not enabled and not --dry-run          ─ exit 0, touch nothing │
+env API key ───▶ │ key missing (and not --dry-run)        ─ exit 2                │
+                 │ take digest.lock (non-blocking)        ─ held → exit 0         │
+content index ─▶ │ pending(index, done, cfg)  (pure) ─▶ ordered rows, cheap gate  │
+                 │ walk rows newest-first, until `limit` candidates:              │
+<sha>.json ────▶ │   read text_content ─▶ length gate                      (pure) │
+                 │   build_request(page, cfg)                              (pure) │
+                 │   client.post_json(...)   ◀── the only egress (client.py)      │
+                 │   parse_digest(response) ─▶ Digest | Failure            (pure) │
+                 │   store record (.digest.json) or failure (.digest.fail.json)   │
+                 │   transport/provider failure → breaker                         │
+                 └────────────────────────────────────────────────────────────────┘
 ```
 
 Package `panopticon/digest/`:
 
-| module        | role                                                               | pure? |
-|---------------|--------------------------------------------------------------------|-------|
-| `config.py`   | `parse_config(dict) -> DigestConfig`; frozen dataclasses; strict  | yes   |
-| `gate.py`     | `normalise_host`, `gate(url, length, quality, cfg) -> Verdict`    | yes   |
-| `select.py`   | `latest_per_url`, `select(...) -> [Candidate]`                    | yes   |
-| `prompt.py`   | `build_request(page, cfg) -> dict`; `parse_digest(resp)`          | yes   |
-| `client.py`   | `post_json(url, headers, body)`: no redirects, bounded retry      | no    |
-| `store.py`    | `StageStore(root, stage)`: per-SHA records + per-stage index      | no    |
-| `__main__.py` | CLI shell: wires the above, lock, logging, circuit breaker        | no    |
+| module        | role                                                                  | pure? |
+|---------------|-----------------------------------------------------------------------|-------|
+| `config.py`   | `parse_config(dict) -> DigestConfig`, frozen dataclasses, strict      | yes   |
+| `gate.py`     | `DEFAULT_DENY`, `normalise_host`, `gate(...) -> Verdict`              | yes   |
+| `select.py`   | `pending(rows, done, cfg) -> [Row]`, latest per URL, newest first     | yes   |
+| `prompt.py`   | `PROMPT_VERSION`, `build_request(page, cfg)`, `parse_digest(resp)`    | yes   |
+| `client.py`   | `post_json(url, headers, body)`: fixed opener, bounded retry          | no    |
+| `store.py`    | `StageStore(root, stage)`: `done()`, `put()`, `put_failure()`         | no    |
+| `__main__.py` | CLI shell: config, lock, walk, breaker, logging                       | no    |
 
-Shared, per D6:
-- **New `panopticon/settings.py`:** `config_dir()` and `load_toml(name)`,
-  mirroring `store.state_dir()`. The name avoids a clash with `digest/config.py`.
-- **New `panopticon/fsutil.py`:** `atomic_write_text` and `exclusive_lock`,
-  extracted from the existing copies (§2).
+Shared code (D6):
+- **New `panopticon/settings.py`:** `config_dir()` and `load_toml(path)`,
+  mirroring `store.state_dir()`.
+- **New `panopticon/fsutil.py`:** `atomic_write_text(path, text)`, plus
+  `@contextmanager exclusive_lock(path) -> Iterator[bool]`. The lock is a
+  non-blocking `fcntl.flock(LOCK_EX | LOCK_NB)` on an `O_CREAT` file, and yields
+  whether it was acquired. That is the poller's current behaviour, which
+  `test_git_poller.py` relies on.
 
 ### 5.2 Interfaces & Contracts
 
@@ -123,17 +131,22 @@ Shared, per D6:
 panopticon-digest [--root PATH] [--config PATH] [--limit N] [--dry-run] [-v|-vv]
 ```
 
-- **No config, or `enabled = false`:** log one line and exit 0. No lock, no
-  writes, no network (I3).
-- **`--dry-run`:** print each row's gate verdict, plus url, title and input size
-  for each candidate. No network, no writes, no lock, and no API key needed. Use
-  it to tune the denylist.
-- **`--limit N`:** overrides `max_pages_per_run`. The backfill is a manual run
+| situation                                         | behaviour                                   | exit |
+|---------------------------------------------------|---------------------------------------------|------|
+| no config file                                    | log one line, touch nothing                 | 0    |
+| malformed config (also with `--dry-run`)          | log the error                               | 2    |
+| `enabled = false`, no `--dry-run`                 | log one line, touch nothing                 | 0    |
+| API key env var unset, no `--dry-run`             | log the variable name                       | 2    |
+| lock held                                         | log and skip                                | 0    |
+| run completes (per-page content failures allowed) | log counts                                  | 0    |
+| breaker trips (§5.4)                              | log the cause                               | 1    |
+
+- **`--dry-run`** needs a valid config but ignores `enabled` and the API key, so
+  the user can dry-run before enabling. It prints every row's verdict, and the
+  host, title and input size of each would-be candidate. It makes no network
+  call, writes nothing and takes no lock.
+- **`--limit N`** overrides `max_pages_per_run`. The backfill is a manual run
   with a large limit.
-- **Exit codes:**
-  - Non-zero on a config error, a missing API key, or a run aborted by the
-    circuit breaker (§5.4).
-  - Any other per-page failure is logged; the page is retried on the next run.
 
 **Config**: `$XDG_CONFIG_HOME/panopticon/digest.toml`
 
@@ -142,80 +155,77 @@ enabled = true
 max_pages_per_run = 50
 
 [gate]
-mode = "deny"                  # "deny" | "allow"
-domains = ["example.internal"] # added to the shipped defaults in deny mode
-use_default_denylist = true
+deny  = ["mybank.example"]   # always applied, on top of DEFAULT_DENY
+# allow = ["lwn.net", …]     # optional; when present, only these hosts pass
 min_chars = 1500
-min_quality = 0.7              # = at most one quality penalty (OQ-3)
+min_quality = 0.7            # = at most one quality penalty (OQ-3)
 
 [digest]
 endpoint = "https://openrouter.ai/api/v1/chat/completions"
-model = "…"                    # required; no default (the allowlist is the user's)
+model = "…"                  # required; no default (the allowlist is the user's)
 api_key_env = "OPENROUTER_API_KEY"
 max_input_chars = 24000
 max_output_tokens = 1500
-use_env_proxy = false
 ```
 
-- **Strict parsing.** An unknown key is an error, so a typo cannot silently drop
-  the user's denylist.
-  - `endpoint` must be `https`.
-  - Any key-shaped field (`api_key`, `token`, …) is rejected. Keys come only from
-    the environment variable named by `api_key_env`.
-  - The unit supplies that variable with `EnvironmentFile=` (or
-    `LoadCredential=`).
-- **Warning:** deny mode with `use_default_denylist = false` and no `domains`
-  passes everything; this logs a warning.
+- **Strict parsing.** An unknown key at any level is an error, so a typo cannot
+  silently drop the denylist; a literal `api_key` field is refused by the same
+  rule. `endpoint` must be `https`, and `model` is required.
+- **Domain normalisation.** Every `deny` and `allow` entry goes through
+  `normalise_host`; an entry that does not normalise is a config error.
+- **Secrets.** Keys come only from the env var named by `api_key_env`. The unit
+  supplies it with `EnvironmentFile=`.
+- **Allow narrows, never widens (D4).** `deny` (`DEFAULT_DENY` plus the user's
+  entries) and the local-host rules always apply. `allow` can only remove hosts
+  from what deny lets through. No setting turns a deny entry into a send.
 
-**Gate**: `Verdict = Pass | Reject(reason)`. The reasons form an enum so tests
-and dry-run output are stable.
+**Gate**: `gate(url, title, quality, length | None, cfg) -> Pass | Reject(reason)`.
+Reasons form an enum, so tests and dry-run output are stable. Rules are
+evaluated in table order:
 
-| reason          | rule                                                                   |
-|-----------------|------------------------------------------------------------------------|
-| `bad_url`       | URL does not parse                                                     |
-| `bad_scheme`    | scheme is not `http`/`https` (rejects `file`, `ftp`)                   |
-| `no_host`       | URL has no hostname (covers the stored `"unknown"` domain)             |
-| `local_host`    | IP literal (v4/v6), `localhost`, `*.local`, `*.lan`, `*.internal`, `*.home.arpa`; any mode |
-| `denied_domain` | deny mode: host is a listed domain or under one                        |
-| `not_allowed`   | allow mode: host is neither a listed domain nor under one              |
-| `low_quality`   | `quality_score < min_quality`                                          |
-| `too_short`     | `len(text_content) < min_chars`                                        |
+| reason          | rule                                                                      |
+|-----------------|---------------------------------------------------------------------------|
+| `bad_url`       | URL does not parse, or its host does not normalise (IDNA error)           |
+| `bad_scheme`    | scheme is not `http`/`https` (rejects `file`, `ftp`)                      |
+| `no_host`       | URL has no hostname                                                       |
+| `local_host`    | IP literal (v4/v6); single-label host (no dot); `localhost`; `*.local`, `*.lan`, `*.internal`, `*.home.arpa` |
+| `denied_domain` | host is a `deny` entry or under one                                       |
+| `not_allowed`   | `allow` is set and the host is neither an entry nor under one             |
+| `low_quality`   | `quality_score < min_quality`                                             |
+| `too_short`     | `length < min_chars` (checked once `length` is known)                     |
 
-- **Host source and normalisation.**
-  - The gate derives the host from the URL itself, never from the stored
-    `domain` field.
-  - `normalise_host` lowercases the host, strips a trailing dot, and
-    IDNA-encodes it.
-- **Domain matching** is on label boundaries: `bank.com` matches `bank.com` and
-  `www.bank.com`, but not `evilbank.com`.
-- **Ordering:** cheap rules run on index fields. `too_short` runs last, after the
-  `.json` is read.
+- **Host source.** The host is always derived from the row's URL, never from
+  the stored `domain` field.
+- **`normalise_host`** lowercases, strips one trailing dot, and IDNA-encodes.
+  It returns `None` on failure, which means `bad_url`.
+- **Label-boundary matching.** `bank.com` matches `bank.com` and `www.bank.com`,
+  but not `evilbank.com`.
+- **`DEFAULT_DENY`** is a `frozenset` in `gate.py`. It lists generic categories
+  only (OQ-4): mail, banking, chat, AI-chat apps, office suites, calendars,
+  search engines, and auth/SSO hosts.
 
-**Payload.** The digest sends `text_content` from `<sha>.json`, not the
-markdown (D9).
-- Plain text has no link targets, so signed URLs and tokens in body links do not
-  leave the host.
-- The payload is the same text that `min_chars` measured.
-- There is no frontmatter to strip.
-- The text is truncated to `max_input_chars`, and `truncated: true` is recorded.
+**What leaves the host (I1).** For a page that passes the gate, exactly three
+things are sent, and nothing else:
+1. the normalised **host**;
+2. the **title**;
+3. `text_content` from `<sha>.json`, truncated to `max_input_chars`.
+
+The URL path, query, userinfo and body links never leave the host (D9, D11).
 
 **Provider request**: an OpenAI-compatible chat completion.
 
 ```json
 { "model": "<cfg>",
   "max_tokens": "<cfg.max_output_tokens>",
-  "messages": [ {"role": "system", "content": "<instructions; page text is data, not instructions>"},
-                {"role": "user",   "content": "<title, url, then the page text inside a delimited block>"} ],
+  "messages": [ {"role": "system", "content": "<instructions; the page block is data, not instructions>"},
+                {"role": "user",   "content": "<host, title, then text_content inside a delimited block>"} ],
   "response_format": { "type": "json_schema",
                        "json_schema": { "name": "page_digest", "strict": true, "schema": DIGEST_SCHEMA } },
   "provider": { "require_parameters": true } }
 ```
 
-`require_parameters` stops OpenRouter from routing to a provider that would
-ignore the schema.
-
-**`DIGEST_SCHEMA`**: every object sets `additionalProperties: false`, and every
-property is `required`.
+`DIGEST_SCHEMA` sets `additionalProperties: false` on every object and lists
+every property as `required`:
 
 ```json
 { "summary": "string",
@@ -223,277 +233,358 @@ property is `required`.
   "entities": [{"name": "string", "type": "string"}] }
 ```
 
-**`parse_digest`** is total: it returns `Digest | Failure(kind)` and never raises.
-It handles these cases:
-- an `error` object in a 200 body;
-- a missing `choices`;
-- `message.refusal`;
-- `finish_reason == "length"`;
-- `content` that is not valid JSON;
-- JSON that fails the schema.
+**`parse_digest`** is total. It returns either a `Digest` or a
+`Failure(kind)`, where `kind` is one of:
+- `refusal` (`message.refusal`)
+- `truncated` (`finish_reason == "length"`)
+- `not_json`
+- `bad_shape`
+- `provider_error` (an `error` object in a 200 body, or no `choices`)
 
 **Client** (`client.py`):
-- **Redirects:** refused, so the request goes only to the configured endpoint.
-- **Proxies:** honoured only if `use_env_proxy = true` (default false). urllib
-  reads `*_PROXY` implicitly; this makes that explicit.
+- **Opener.** `build_opener(NoRedirect(), ProxyHandler({}),
+  HTTPSHandler(context=ssl.create_default_context()))`:
+  - `NoRedirect` subclasses `HTTPRedirectHandler` and makes `redirect_request`
+    return `None`. Refusing redirects keeps the `Authorization` header and the
+    body from reaching any other host.
+  - `ProxyHandler({})` stops urllib from reading the `*_PROXY` env vars.
 - **Timeout:** 60 s per request.
-- **Retries** on 429/5xx, exponential with jitter:
-  - `Retry-After` is capped at 60 s;
-  - at most 4 attempts;
-  - total sleep per page is capped.
-- **401/402/403** raises `ProviderUnavailable` without retrying, which the run
-  treats as fatal (§5.4).
-- **Logging:** never the request body, the page text, headers or error bodies.
-  Logs carry only the SHA, the HTTP status and the failure kind.
+- **Retried** (exponential backoff with jitter, at most 4 attempts):
+  - 429 and 5xx, with `Retry-After` capped at 60 s;
+  - `URLError` and timeouts.
+
+  Once the attempts are exhausted, the client raises `TransportFailure`.
+- **Fatal, never retried:** 3xx (a refused redirect), 401, 402 and 403 all
+  raise `ProviderUnavailable`. Any other 4xx raises `TransportFailure`.
+- **Logging.** Logs hold only the SHA, the HTTP status and the failure kind —
+  never request bodies, page text, headers or error bodies (I5).
 
 ### 5.3 Data, State & Ownership
 
 ```
 ~/.local/state/behaviour/
-  content/                       (owned by firefox_host; read-only here)
-  digest/                        (owned by panopticon-digest)
-    digest.jsonl                 stage index: content_hash, url, digested_at,
-                                              endpoint, model, prompt_version
-    <sha[:2]>/<sha>.digest.json  record: index fields + title, captured_at
-                                         (from the content index), input_chars,
-                                         truncated, summary, claims, entities
-    # later slices, same StageStore: <sha>.triage.json + triage.jsonl,
-    #                                 <sha>.embed.json  + embed.jsonl
-  digest.lock                    single-instance guard
+  content/                            (owned by firefox_host; read-only here)
+  digest/                             (owned by panopticon-digest)
+    <sha[:2]>/<sha>.digest.json       record
+    <sha[:2]>/<sha>.digest.fail.json  content-failure marker: kind, at, model, prompt_version
+    # later slices, same StageStore:  <sha>.triage.json, <sha>.embed.json
+  digest.lock                         single-instance guard
 ```
 
-- **`StageStore(root, stage)`** is parameterised by stage, so triage and embed
-  reuse it instead of copying it.
-- **"Digested" means the record file exists.**
-  - The index is a convenience for consumers, appended after the record.
-  - A crash between the two loses an index row, so each run first appends rows
-    for any records missing from the index (`reconcile_index`).
-- **Egress ledger.** Each record stores `endpoint`, `model` and
-  `prompt_version`:
-  - `endpoint` records which provider saw the text;
-  - `model` and `prompt_version` make drift detectable.
-  - Re-digesting after a mismatch is manual (delete the records), not automatic.
-- **Untrusted content.** Digests are untrusted derived text, since page content
-  can steer them. The README says so for consumers (SATAN).
-- **Retention.** Digest records follow content records.
-  - RSK-001 owns content retention and must cascade deletion to `digest/`.
-  - This slice adds no deletion (D7).
+**Record fields:**
+
+| field            | source                                                        |
+|------------------|---------------------------------------------------------------|
+| `content_hash`   | the content index                                             |
+| `url`            | the content index (local only — it was never sent)            |
+| `host`           | the normalised host that was sent                             |
+| `title`          | the content index                                             |
+| `captured_at`    | the content index (first sighting)                            |
+| `digested_at`    | the run                                                       |
+| `endpoint`       | config — the egress ledger: which provider saw the text       |
+| `model`          | config                                                        |
+| `prompt_version` | `PROMPT_VERSION` in `prompt.py`                               |
+| `input_chars`    | length of the text sent                                       |
+| `truncated`      | whether the text was cut to `max_input_chars`                 |
+| `summary`        | the provider response                                         |
+| `claims`         | the provider response                                         |
+| `entities`       | the provider response                                         |
+
+- **Done.** A SHA is *done* when either its record or its fail marker exists.
+  `StageStore.done()` returns that set by globbing; there is no index (D12).
+- **Retrying a failure.** To retry a content failure, delete its marker.
+  Re-digesting after a model or prompt change is likewise manual: delete the
+  records.
+- **Untrusted text.** Digests are untrusted derived text, because page content
+  can steer them. The README says so, for consumers such as SATAN.
+- **Retention.** Digest files follow content records. RSK-001 owns content
+  retention and must cascade to `digest/`. This slice deletes nothing (D7).
 
 ### 5.4 Lifecycle, Operations & Dynamics
 
-- **Units, shipped but not enabled.**
-  - `systemd/digest.service`: oneshot, `ExecStart=panopticon-digest`,
-    `EnvironmentFile=-%h/.config/panopticon/digest.env`,
-    `TimeoutStartSec=30min`.
-  - `systemd/digest.timer`: daily, `Persistent=true`.
-- **One run:**
-  1. Load the config; if disabled, stop.
-  2. Take the lock; if it is held, stop.
-  3. Reconcile the index.
-  4. Select candidates.
-  5. Send, parse and store each candidate.
-  6. Log counts per verdict and outcome.
-- **Selection (D5):**
-  1. Take the latest SHA per URL over **all** index rows, by first-sighting
-     `captured_at` parsed as an aware datetime (the strings carry offsets).
-  2. If that SHA is already digested, or the gate rejects it, the URL is done
-     for this run. Never fall back to an older SHA.
-  3. Order the survivors newest first and take up to `limit`.
-  - **Known quirk:** a page that changes A → B → A ranks B as latest, because
-    the index records first sightings. Accepted.
-- **Churn.** A listing page whose content changes on every capture is digested
-  at most once per run, and so roughly once per day. Triage (deferred) is the
-  real fix. If that rate bites first, add a per-URL cooldown (OQ-5).
-- **Circuit breaker.** The run stops and exits non-zero on
-  `ProviderUnavailable` (401/402/403), or after 3 consecutive page failures.
+**Units** (shipped, not enabled):
+- `systemd/digest.service`: oneshot, `ExecStart=panopticon-digest`,
+  `EnvironmentFile=-%h/.config/panopticon/digest.env`, `TimeoutStartSec=30min`.
+- `systemd/digest.timer`: daily, `Persistent=true`.
+- New `[project.scripts]` entry: `panopticon-digest`.
+
+**One run** follows the sequence in §5.1.
+
+**Selection (D5):**
+1. `pending()` takes the latest row per URL over **all** index rows, by
+   `captured_at` parsed as an aware datetime.
+2. It drops rows that are done and rows the cheap gate rejects. It never falls
+   back to an older SHA of the same URL.
+3. It orders the remainder newest first.
+4. The shell walks that list lazily. It reads `<sha>.json` only for the rows it
+   reaches, applies `too_short`, and stops at `limit` candidates.
+
+**Known quirks:**
+- A page that goes A → B → A ranks B as latest, because the index records
+  first sightings. Accepted.
+- A listing page whose content changes every capture is digested at most once
+  per run, so about daily. Triage, which is deferred, is the real fix; a
+  per-URL cooldown is the fallback if it bites (OQ-5).
+
+**Breaker:**
+- A content failure (`refusal`, `truncated`, `not_json`, `bad_shape`) writes a
+  fail marker and the run continues. Deterministic failures never block
+  progress.
+- `ProviderUnavailable` aborts the run at once.
+- 3 consecutive `TransportFailure` or `provider_error` results abort the run.
+- An aborted run exits 1 and leaves no marker for the page it aborted on.
 
 ### 5.5 Invariants, Assumptions & Edge Cases
 
-- **I1:** nothing is sent for a candidate whose gate verdict is not `Pass`.
-- **I2:** only `panopticon/digest/client.py` imports a network-capable module:
-  - `urllib.request`, `http.client`, `ssl`, `socket`;
-  - `trafilatura.spider`, `trafilatura.downloads`, `courlan`.
-- **I3:** without a config that has `enabled = true`, a run makes no network
-  call and writes nothing, not even the lock file.
-- **I4:** re-running is idempotent; an existing record is never re-sent.
-- **I5:** no log line contains page text, a request body or a credential.
-- **Edge cases:**
-  - An index row whose `.json` is missing is skipped and logged.
-  - An unparseable index line is skipped; `_read_index` already does this.
-  - A failed page leaves no record and is retried next run, under the circuit
-    breaker.
+- **I1:** Nothing is sent for a page whose verdict is not `Pass`. For a page
+  that passes, only the host, title and truncated `text_content` are sent.
+- **I2:** Only `panopticon/digest/client.py` imports `urllib.request`,
+  `http.client`, `ssl` or `socket`.
+- **I3:** Without `enabled = true`, a non-dry run makes no network call and
+  writes nothing, not even the lock file. A dry run never makes a network call
+  and never writes.
+- **I4:** Re-running is idempotent: a done SHA is never re-sent.
+- **I5:** No log line contains page text, a request body or a credential.
+
+**Edge cases:**
+- An index row whose `.json` is missing is skipped and logged.
+- An unparseable index line is skipped (`_read_index` already does this).
 
 ## 6. Open Questions & Unknowns
 
-- **OQ-1: which OpenRouter model?** It must support strict `json_schema` with
-  `require_parameters`. Settle with one live call during execution. The model is
-  config, so this does not block the design.
-- **OQ-2: `max_input_chars`.** 24k chars covers roughly p90 (27 KB). Confirm
-  against the model's context window and cost.
-- **OQ-3: `min_quality`.** The score is discrete, so 0.7 means "at most one
-  penalty". Check with `--dry-run` on the real corpus whether 0.4 (two
-  penalties) is better.
-- **OQ-4: the shipped default denylist.** It should list generic categories
-  only, none of the user's actual domains:
-  - mail, banking, chat, AI chat apps;
-  - office suites, calendars, search result pages.
-  - Check its coverage with `--dry-run`.
-- **OQ-5: path-based rules.** Should the gate deny search-result paths
-  (`google.com/search`) or apply a per-URL cooldown for listing pages? The
-  design is domain-only; add either one only if dry-run data asks for it.
+- **OQ-1:** Which OpenRouter model? It must support strict `json_schema` under
+  `require_parameters`. One live call during execution settles this; the model
+  is config.
+- **OQ-2:** `max_input_chars`. 24k chars covers roughly the p90 page (27 KB).
+  Confirm against the model's context window and cost.
+- **OQ-3:** `min_quality`. With `min_chars ≥ 500`, 0.7 means "at most one
+  penalty" (no title, link-heavy, or short lines). Check 0.7 against 0.4 with
+  `--dry-run` on the real corpus.
+- **OQ-4:** The contents of `DEFAULT_DENY`: generic categories only, none of
+  the user's own domains. **Settle in `/plan`** as a concrete list, then check
+  its coverage with `--dry-run`.
+- **OQ-5:** Path rules or a per-URL cooldown. The design is domain-only; add
+  either only if dry-run data asks for it.
 
 ## 7. Decisions, Rationale & Alternatives
 
-- **D1: gate + digest only.**
-  - Why: triage needs the jev DPA read first, and embedding needs a model choice.
-    Shipping gate + digest keeps the day-one egress surface to one provider.
-  - Rejected: all four stages, which blocks on two external checks.
-- **D2: stdlib `urllib`.**
-  - Why: no new nix or Python dependency, and the jev SDK is likely not in
-    nixpkgs. The redirect and proxy handling and the retry loop are small.
-  - Rejected: httpx (one more dependency) and vendor SDKs (nix packaging risk,
-    three clients).
-- **D3: TOML config, secrets only from env.**
-  - Why: `tomllib` is in the stdlib. Env vars keep keys out of a file that is
-    easy to commit or share. The loader goes in `panopticon/settings.py` so
-    IDE-003 can reuse it.
-  - Rejected: key-file paths in the TOML, and flags only (awkward for lists).
-- **D4: denylist mode with shipped defaults; local and non-http hosts always
-  denied.**
-  - Why: matches DEC-002. Allowlist mode is available by config.
-  - Rejected: allowlist by default (nothing works until curated) and an empty
-    default (unsafe on the first run).
-- **D5: latest SHA per URL over all rows, no fallback, newest first, bounded per
-  run.**
-  - Why: cuts listing-page churn within a run without triage, and keeps cost and
-    backfill pacing predictable.
-  - Rejected: a fallback to older SHAs, which would digest stale versions.
-- **D6: extract `atomic_write_text` and `exclusive_lock` into
-  `panopticon/fsutil.py`.**
-  - Why: a third copy would be a parallel implementation. All three existing
-    variants migrate, including `RawStore._write_current_file`, which then calls
-    the helper.
-  - Behaviour-preserving: the existing suites are the proof.
-- **D7: no digest retention in this slice.**
-  - Why: content is never deleted today, so orphan records cannot occur. RSK-001
-    owns deletion and must cascade it.
-- **D8: gate verdicts are not stored.**
-  - Why: they are cheap and deterministic, so recomputing them applies config
-    changes retroactively.
-- **D9: send `text_content`, not the markdown.**
-  - Why: body links in the markdown carry unredacted query strings (tokens,
-    signed URLs). Plain text also matches what `min_chars` measures and needs
-    no frontmatter parsing.
-  - Cost: the model loses headings and list structure. Acceptable for a
-    summary.
+**D1: Gate + digest only.**
+- Triage needs the jev DPA read; embedding needs a model choice. Shipping gate
+  and digest first keeps day-one egress to one provider.
+- Rejected: all four stages.
 
-- **D10: delete `ingest/extractor.py` and its test** (user, 2026-10-01;
-  formerly OQ-6).
-  - Why: it is dead network code. It fetches URLs through trafilatura's
-    `focused_crawler` and has no callers outside its own test.
-  - Effect: I2 holds over the whole package with no exemption, and capture is
-    network-free in the code as well as in practice.
+**D2: Stdlib `urllib`.**
+- No new dependency, and the jev SDK is likely not in nixpkgs. The opener
+  wiring is in §5.2.
+- Rejected: httpx and the vendor SDKs.
+
+**D3: TOML config; secrets only from the environment.**
+- `tomllib` is in the stdlib, and env vars keep keys out of a file that is easy
+  to share.
+- The loader lives in `panopticon/settings.py` so IDE-003 can reuse it.
+- Rejected: key-file paths, and config by CLI flags only.
+
+**D4: Deny always applies; allow only narrows.**
+- `DEFAULT_DENY` plus the user's `deny`, plus the local-host rules, apply on
+  every run. An optional `allow` restricts further.
+- This realises DEC-002's denylist with an optional allowlist, and no setting
+  can flip a deny entry into a send.
+- Rejected:
+  - a single `mode` + `domains` list, which inverts its meaning when the mode
+    changes;
+  - allow-by-default;
+  - an empty default.
+
+**D5: Latest SHA per URL, with no fallback.**
+- Newest first, lazy, bounded per run. This cuts listing-page churn within a
+  run and keeps backfill pacing predictable.
+- Rejected: falling back to an older SHA, which would digest stale versions.
+
+**D6: Extract `atomic_write_text` and `exclusive_lock` into
+`panopticon/fsutil.py`.**
+- All three atomic-write variants and the poller's lock migrate.
+- This is behaviour-preserving: the existing suites stay green unchanged.
+
+**D7: No digest retention in this slice.** Content is never deleted today.
+RSK-001 owns deletion and its cascade.
+
+**D8: Gate verdicts are not stored.** They are cheap and deterministic, so a
+config change applies retroactively.
+
+**D9: Send `text_content`, not markdown.**
+- Body links in the markdown carry unredacted query strings.
+- Plain text matches what `min_chars` measures and needs no frontmatter
+  parsing.
+- Cost: the model loses headings and list structure.
+
+**D10: Delete `ingest/extractor.py`, its test, and the trafilatura dependency.**
+- Decided by the user on 2026-10-01.
+- The file is dead network code; trafilatura is removed from `pyproject.toml`
+  and from both `flake.nix` lists.
+- I2 then holds over the whole package with no exemption.
+
+**D11: Send the host, not the URL.**
+- Stored paths can carry secrets: share links, token pages, OAuth flows. The
+  netloc can carry userinfo.
+- The host and title give the model enough context; the text carries the
+  content.
+- Rejected: the redacted URL with userinfo stripped, which still sends paths.
+
+**D12: No digest index.**
+- "Done" means a record or fail marker exists, and consumers glob the records.
+  This removes the index-loss window and the reconcile code.
+- An index can be added when a consumer needs one.
+
+**D13: Content failures are recorded; only transport and provider failures
+trip the breaker.**
+- A deterministic failure would otherwise abort every run at the same place
+  and stall the backfill.
 
 ## 8. Risks & Mitigations
 
-- **R1: the denylist misses a sensitive domain, so its text leaves the host.**
-  - Local and non-http hosts are hard-denied, and defaults ship.
-  - `--dry-run` before enabling; allowlist mode for the cautious.
-- **R2: a page that always fails is retried, and charged for, on every run.**
-  - The cost is tiny, and the circuit breaker bounds a bad run.
-  - Failures are logged by SHA. A failure record with an attempt count is
-    deferred until needed.
-- **R3: the provider stores or trains on the text.**
-  - The user checks retention terms before adding a provider (DEC-002).
-  - The endpoint and model are explicit config with no defaults, and every
-    record names its endpoint.
-- **R4: prompt or model drift.** `model` and `prompt_version` are stored per
-  record, so drift is detectable.
-- **R5: prompt injection from page content.**
-  - The model has no tools, so the effect is confined to the digest text.
-  - Page text is fenced as data in the prompt.
-  - Digests are documented as untrusted for downstream agents (second-order
-    injection).
+**R1: A sensitive domain misses the denylist and its text leaves the host.**
+- Local, single-label and non-http hosts are hard-denied.
+- `DEFAULT_DENY` ships with the code.
+- `--dry-run` works before enabling.
+- `allow` is available for the cautious.
+
+**R2: Repeated charges for failing pages.**
+- Content failures are recorded once (D13).
+- Transport failures are bounded by the breaker and retried next run.
+
+**R3: The provider stores or trains on the text.**
+- The user checks retention terms before adding a provider (DEC-002).
+- The endpoint and model are explicit config, and every record names its
+  endpoint.
+
+**R4: Prompt or model drift.** Each record stores `model` and
+`prompt_version`.
+
+**R5: Prompt injection from page content.**
+- The model has no tools, so the effect is confined to the digest text.
+- Page text is fenced as data in the prompt.
+- Digests are documented as untrusted for downstream agents.
 
 ## 9. Quality Engineering & Validation
 
-- **Pure units (TDD):**
-  - `parse_config`: valid; missing model; unknown key; key-shaped field;
-    non-https endpoint; the empty-denylist warning.
-  - `gate`: every reason in the table, plus:
-    - the trailing dot and case;
-    - an IDN host;
-    - `evilbank.com` vs `bank.com`;
-    - IPv4/IPv6 literals and `*.local` in allow mode;
-    - `file://`;
-    - a stored `"unknown"` domain.
-  - `latest_per_url`/`select`: latest gated means no fallback; already digested;
-    mixed tz offsets; the limit; the ordering.
-  - `build_request`: truncation flag; schema shape; `require_parameters`;
-    page text inside the delimiter.
-  - `parse_digest`: success, and each `Failure` kind.
-- **Store:** `StageStore` round trip in `tmp_path`, idempotence (I4), and
-  `reconcile_index` after a simulated crash between record and index.
-- **Run level:** `run()` with an injected fake transport:
-  - no-config no-op, with no lock file (I3);
-  - dry-run makes no calls and no writes;
-  - a gated page never reaches the transport (I1);
-  - a failed page leaves no record;
-  - a 401 aborts the run;
-  - three consecutive failures abort the run.
-- **Client:** a local `http.server` fixture:
-  - a redirect is refused;
-  - 429 with `Retry-After` is capped and retried;
-  - 401 raises `ProviderUnavailable`.
-- **I5:** a `caplog` test across a failing and a succeeding run asserts that no
-  page text and no key appear in the logs.
-- **I2 tripwire:**
-  - A test walks the AST of `panopticon/**.py`. It fails if any module other
-    than `digest/client.py` imports a module on the I2 list.
-  - It cannot see network calls made through permitted libraries such as
-    `asyncio.open_connection`; it is a tripwire, not a proof.
-  - It holds with no exemptions once `extractor.py` is deleted (D10).
-- **D6 behaviour gate:** the content, store, segmentizer and git-poller suites
-  stay green with no changes.
-- **VH (verified by a human):** one live run against OpenRouter on a handful of
-  pages, then manual inspection of the records (OQ-1).
-- **Docs:**
-  - README: the binary table, config, how to enable it, and that digests are
-    untrusted text.
-  - `docs/privacy.md`: the egress statement required by DEC-002.
+**Pure units (TDD):**
+- `parse_config`:
+  - a valid config;
+  - a missing model;
+  - an unknown key at each level;
+  - a literal `api_key`;
+  - a non-https endpoint;
+  - a non-normalisable domain entry;
+  - an IDN entry normalised to punycode.
+- `gate`:
+  - every reason in the table;
+  - a trailing dot, mixed case, an IDN host, and an IDNA error (`bad_url`, not
+    a crash);
+  - `evilbank.com` vs `bank.com`;
+  - IPv4/IPv6 literals, a single-label host, and `*.local`, including when
+    `allow` is set;
+  - `allow` cannot pass a denied host;
+  - `file://`, and a URL with no host.
+- `DEFAULT_DENY`:
+  - every entry is already normalised;
+  - the defaults apply when `deny` is omitted.
+- `pending`:
+  - a latest row that is gated or done means no fallback;
+  - mixed tz offsets and `Z` suffixes;
+  - newest-first ordering.
+- `build_request`:
+  - only the host, title and text appear (the URL path and userinfo are
+    absent);
+  - truncation sets `truncated`;
+  - the schema shape and `require_parameters`;
+  - the page sits inside the delimiter.
+- `parse_digest`: success, and each `Failure` kind.
+
+**Store:**
+- the record round trip in `tmp_path`;
+- the fail marker counts as done;
+- idempotence (I4).
+
+**Run level**, with an injected fake transport:
+- no config, or not enabled: no lock file and no calls (I3);
+- a dry run with `enabled = false` and no key: verdicts printed, no calls, no
+  writes;
+- a gated page never reaches the transport (I1);
+- a content failure writes a marker and the run continues;
+- `ProviderUnavailable` aborts with exit 1;
+- 3 consecutive transport failures abort;
+- the lazy walk stops at `limit`;
+- the exit codes match the §5.2 table.
+
+**Client**, against a local `http.server` fixture:
+- a 302 raises `ProviderUnavailable` and the target is never contacted;
+- a 429 with a large `Retry-After` is capped and retried;
+- a 401 is fatal;
+- with a bogus `HTTPS_PROXY` set, the connection still goes direct.
+
+**I5:** a `caplog` test across failing and succeeding runs finds no page text
+and no key in the logs.
+
+**I2 tripwire:**
+- An AST walk over `panopticon/**.py` checks the I2 module list.
+- It is a tripwire, not a proof: `asyncio.open_connection` would evade it.
+- With D10 it needs no exemptions.
+
+**D6 behaviour gate:** the content, store, segmentizer and git-poller suites
+stay green unchanged.
+
+**VH (verified by a human):** one live run against OpenRouter on a handful of
+pages, then a manual read of the records (OQ-1).
+
+**Docs:**
+- **README:** replace "No network calls" (lines 11 and 119) with the DEC-002
+  statement, and add the binary table row, config, how to enable it, and that
+  digests are untrusted.
+- **`docs/privacy.md`:** state the egress, and exactly what leaves the host
+  (I1).
 
 ## 10. Review Notes
 
-**Round 1** (2026-10-01, adversarial subagent; codex MCP unavailable). The 17
-findings were verified against the code, and all were accepted:
+**Round 1** (2026-10-01, adversarial subagent; the codex MCP was unavailable).
+All 17 findings were verified and accepted:
+- gate holes (`file://`, the `"unknown"` domain, trailing dot);
+- unredacted body links → D9;
+- reading `length` by `stat` was wrong;
+- selection order and the fallback;
+- the `response_format` shape;
+- the circuit breaker and `Retry-After` cap;
+- strict config;
+- client hygiene and I5;
+- dead network code → D10;
+- I3 vs the lock;
+- index loss;
+- D5 wording;
+- prompt injection → R5;
+- discrete `quality_score`;
+- the egress ledger and `StageStore`;
+- naming (`settings.py`).
 
-- **Gate holes:**
-  - `file://` and the `"unknown"` domain could pass → `bad_scheme`/`no_host`;
-    the host now comes from the URL.
-  - A trailing-dot host evaded the denylist → `normalise_host`, label-boundary
-    matching, and a wider set of local hosts.
-- **Payload:** unredacted body links → D9, `text_content`.
-- **Length:** a file `stat` cannot give `length` → read `.json` for survivors.
-- **Selection:**
-  - The order was unspecified, with an implicit fallback to older SHAs → §5.4
-    and D5.
-  - Timestamps need tz-aware sorting.
-  - First-sighting `captured_at` is authoritative.
-- **Request:** the `response_format` shape was wrong → corrected, with
-  `require_parameters` and the full set of `Failure` kinds.
-- **Retry:** no circuit breaker; unbounded `Retry-After` → capped retries,
-  a breaker, and `TimeoutStartSec`.
-- **Config:** unknown keys now fail; https only; empty-denylist warning.
-- **Client hygiene:** no redirects; explicit proxy handling; I5 (no
-  page text or credentials in logs).
-- **Dead network code:** `extractor.py` → D10 (deleted); I2 widened to `ssl`
-  and trafilatura/courlan.
-- **I3 vs the lock:** config is now loaded before the lock.
-- **Index loss:** a crash between record and index lost rows → `reconcile_index`.
-- **D5 claim** corrected to "once per run".
-- **Prompt injection** → R5: page text fenced, digests marked untrusted.
-- **`quality_score` is discrete** → OQ-3 restated; `min_quality` set to 0.7.
-- **Egress ledger** (`endpoint` per record) and `StageStore`, a stage-
-  parameterised store.
-- **Naming:** `settings.py` instead of `config.py`, and the
-  `_write_current_file` variant folded into D6.
+**Round 2** (2026-10-01, a fresh adversarial subagent). All 13 findings and the
+3 proposed cuts were verified and accepted:
+- **Blocker:** a single `mode` + `domains` list inverted its meaning across
+  modes → D4 recast as deny-always + allow-narrows.
+- **Major:** deterministic content failures would wedge the breaker and stall
+  the backfill → D13, fail markers.
+- **Major:** dry-run was impossible before enabling → `--dry-run` ignores
+  `enabled` and the key.
+- **Major:** the URL (path, userinfo) was being sent → D11, host only; I1 lists
+  exactly what leaves the host.
+- **Minor:**
+  - single-label hosts → `local_host`;
+  - IDNA errors and config-entry normalisation;
+  - `DEFAULT_DENY` gets a home and tests, with contents settled in the plan;
+  - the exact urllib opener wiring, with redirects fatal;
+  - trafilatura removed as a dead dependency, plus the README lines;
+  - a full exit-code table;
+  - the `exclusive_lock` contract;
+  - wording on the `"unknown"` domain and `captured_at`.
+- **Cuts taken:**
+  - the key-shaped-field rule (unknown-key rejection covers it);
+  - `use_env_proxy` (always `ProxyHandler({})`);
+  - the digest index and `reconcile_index` (D12);
+  - lazy `.json` reads were adopted.

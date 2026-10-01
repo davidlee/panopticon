@@ -38,14 +38,15 @@ A new console script `panopticon-digest`. This slice delivers stages 1 and 3;
 2 and 4 are follow-up slices (design D1). Four stages, each independently
 re-runnable, each output stored separately and keyed by content SHA:
 
-1. **Gate** — deterministic, local, before any egress: domain denylist (optional
-   allowlist mode), minimum size, app domains. Pure function of the index entry
+1. **Gate** — deterministic, local, before any egress: domain denylist (an optional
+   allowlist only narrows), minimum size, app domains. Pure function of the index entry
    and config. A model never decides whether text may reach a model.
 2. **Triage** — typed classification (`kind`, `signal`, each with confidence)
    over url + title + the first N KB. Stored apart from the digest so a taxonomy
    change re-runs triage alone.
-3. **Digest** — structured `{summary, claims[], entities[]}` for useful kinds
-   above a `signal` threshold; body truncated to a size cap.
+3. **Digest** — structured `{summary, claims[], entities[]}`; body truncated to
+   a size cap. In this slice every page that passes the gate is digested;
+   filtering by triage `kind`/`signal` arrives with stage 2.
 4. **Embed** — a vector per digest, stored with its model id so a model change
    is a detectable re-embed.
 

@@ -82,3 +82,46 @@ For PHASE-03:
   (from `Request`), plus the `Digest` fields. `Failure.kind` feeds the D13/D14
   content-vs-provider split: `provider_error` is a provider failure, and every
   other kind is a content failure.
+
+## PHASE-03 impure shell (2026-10-01)
+
+Modules: `digest/{store,client,__main__}.py`; `panopticon/cli.py`;
+`systemd/digest.{service,timer}`; console script `panopticon-digest`.
+
+Shared seams (no parallel implementation):
+- `ingest/content.py` gains public `shard_path(root, sha, suffix)` and
+  `read_index(content_root)`. `ContentStore` and `StageStore` share the layout;
+  `_read_index` is gone.
+- `panopticon/cli.py`: `log_level` / `configure_logging`. Four entrypoints had
+  copies, in two spellings; all now call the shared one.
+
+Decisions made within the design:
+- `StageStore.put(sha, record)` / `put_failure(sha, marker)` take the SHA
+  explicitly. The §5.3 marker has no `content_hash`, so the file name is the key.
+- Streaks count failures of each class since the last success; a success resets
+  both. This is stricter than "consecutive", so it aborts sooner, never later.
+- Every abort discards held markers. §5.4 requires this for the content breaker.
+  For `ProviderUnavailable` and the transport breaker it is the conservative
+  reading of "mark only what's proven": those pages are re-sent next run.
+- `PageRejected` marker: `kind = "page_rejected"` plus `status`.
+- The client never sees the SHA. It logs `attempt n/4` with the status or
+  exception class name; the shell logs the SHA with the outcome.
+- Backoff with no `Retry-After`: `2**(attempt-1) + jitter` seconds. An HTTP-date
+  `Retry-After` is ignored (backoff is used instead).
+- Dry-run output: `verdict<TAB>sha` per row; a pass row adds
+  `input_chars<TAB>host<TAB>title` (whitespace flattened). A final line gives
+  per-verdict counts, which PHASE-04 can quote as aggregates. Only cheap-gate
+  passes have their `.json` read: `too_short` is the last rule, so the output
+  is identical. A missing `.json` is logged and skipped, not printed.
+- Cert-failure test: `tests/fixtures/selfsigned-localhost.pem` is a committed
+  throwaway key and cert (100-year expiry). The nix sandbox has no openssl, and
+  the stdlib test certs are not shipped.
+- `digest.service` has no `network-online.target` ordering: that is a system
+  target and has no effect in a user unit.
+
+For PHASE-04:
+- Corpus dry-run: `panopticon-digest --dry-run --config <cfg>` with a config
+  holding any `model`. The last stdout line holds the counts. Commit only
+  aggregates.
+- The README needs: the binary table row, config, enabling the timer, the
+  `digest.env` path note, and that digests are untrusted text.

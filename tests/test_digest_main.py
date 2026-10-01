@@ -89,13 +89,15 @@ class Env:
     config: Path
     transport: FakeTransport
 
-    def run(self, *, limit: int | None = None, dry_run: bool = False, key: bool = True) -> int:
+    def run(
+        self, *, limit: int | None = None, dry_run: bool = False, key: str | None = KEY
+    ) -> int:
         return run(
             self.root,
             self.config,
             limit=limit,
             dry_run=dry_run,
-            env={KEY_ENV: KEY} if key else {},
+            env={KEY_ENV: key} if key is not None else {},
             transport=self.transport,
             now=lambda: T0,
         )
@@ -254,7 +256,7 @@ def test_dry_run_ignores_enabled_and_key_and_prints_verdicts(
     StageStore(env.root / "digest", "digest").put(done, {})
     before = snapshot(env.root)
 
-    assert env.run(dry_run=True, key=False) == 0
+    assert env.run(dry_run=True, key=None) == 0
 
     assert snapshot(env.root) == before
     assert not (env.root / "digest.lock").exists()
@@ -428,6 +430,32 @@ def test_exit_2_when_key_missing(env: Env, monkeypatch: pytest.MonkeyPatch,
     assert KEY_ENV in caplog.text
 
 
+@pytest.mark.parametrize("bad", [KEY + "\n", KEY + "\r", " " + KEY, "sk-\x07-control"])
+def test_exit_2_when_key_has_whitespace_or_control_chars(
+    env: Env, caplog: pytest.LogCaptureFixture, bad: str
+):
+    add_page(env.root, 1)
+    assert env.run(key=bad) == 2
+    assert env.transport.calls == []
+    assert KEY_ENV in caplog.text
+    assert bad.strip() not in caplog.text
+
+
+@pytest.mark.parametrize("sha", ["../../escape", "ABC", "0" * 63])
+def test_a_non_hex_content_hash_never_reaches_a_store_path(env: Env, capsys, sha: str):
+    real = add_page(env.root, 1)
+    index = content_dir(env.root) / "articles.jsonl"
+    row = json.loads(index.read_text(encoding="utf-8").splitlines()[0])
+    row.update(content_hash=sha, url="https://example.org/other")
+    with index.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(row) + "\n")
+    assert env.run(dry_run=True) == 0
+    assert f"bad_row\t{sha}" in capsys.readouterr().out
+    assert env.run() == 0
+    assert [r["content_hash"] for r in env.records()] == [real]
+    assert not (env.root.parent / "escape.digest.json").exists()
+
+
 def test_exit_0_when_lock_held(env: Env):
     add_page(env.root, 1)
     with exclusive_lock(env.root / "digest.lock") as acquired:
@@ -447,3 +475,16 @@ def test_exit_1_when_a_breaker_trips(env: Env):
     add_page(env.root, 1)
     env.transport.script = [ProviderUnavailable(402)]
     assert env.run() == 1
+
+
+# --- the shipped unit -----------------------------------------------------------
+
+
+def test_unit_runs_at_info_so_the_design_log_rows_reach_the_journal():
+    unit = Path(__file__).parent.parent / "systemd" / "digest.service"
+    exec_start = next(
+        line.partition("=")[2].split()
+        for line in unit.read_text(encoding="utf-8").splitlines()
+        if line.startswith("ExecStart=")
+    )
+    assert exec_start == ["panopticon-digest", "-v"]

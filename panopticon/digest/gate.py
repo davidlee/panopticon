@@ -94,11 +94,14 @@ DEFAULT_DENY: frozenset[str] = frozenset(
         # compose / editor surfaces: the user's own unpublished writing
         "linkedin.com/sharing", "linkedin.com/article/new", "linkedin.com/article/edit",
         "x.com/compose", "reddit.com/submit", "medium.com/new-story",
+        # x.com's former host still serves the same private paths
+        "twitter.com/messages", "twitter.com/i/chat", "twitter.com/compose",
     }
 )  # fmt: skip
 
 _LOCAL_SUFFIXES = ("localhost", "local", "lan", "internal", "home.arpa")
 _LABEL = re.compile(r"[a-z0-9_-]+")
+_NUMBER = re.compile(r"0x[0-9a-f]*|[0-9]+")
 
 
 def normalise_host(raw: str) -> str | None:
@@ -162,6 +165,10 @@ def gate(url: str, quality: float, length: int | None, cfg: GateConfig) -> Verdi
 
 
 def _is_ip_literal(host: str) -> bool:
+    """An IP address, or any host whose final label is a number: WHATWG parses
+    ``127.1`` and ``0x7f.1`` as IPv4, so they must never pass as names."""
+    if _NUMBER.fullmatch(host.rpartition(".")[2]):
+        return True
     try:
         ipaddress.ip_address(host)
     except ValueError:
@@ -174,8 +181,16 @@ def _is_local(host: str) -> bool:
 
 
 def _normalise_path(path: str) -> str:
-    """Percent-decoded, lowercased, empty segments dropped: compares wider, so deny fails closed."""
-    return "/" + "/".join(seg for seg in unquote(path).lower().split("/") if seg)
+    """Percent-decoded, lowercased, ``;params`` and empty segments dropped, ``.``/``..``
+    resolved: compares wider, so deny fails closed."""
+    out: list[str] = []
+    for seg in unquote(path).lower().split("/"):
+        seg = seg.partition(";")[0]
+        if seg == "..":
+            out = out[:-1]
+        elif seg not in ("", "."):
+            out.append(seg)
+    return "/" + "/".join(out)
 
 
 def _denied(host: str, path: str, deny: frozenset[str]) -> bool:

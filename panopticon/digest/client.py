@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import http.client
 import logging
+import math
 import random
 import ssl
 import time
@@ -122,4 +123,6 @@ def _retry_after(headers: Message | None) -> float | None:
         seconds = float(value) if value is not None else None
     except ValueError:
         return None
-    return None if seconds is None or seconds < 0 else min(seconds, MAX_RETRY_AFTER)
+    if seconds is None or not math.isfinite(seconds) or seconds < 0:
+        return None
+    return min(seconds, MAX_RETRY_AFTER)

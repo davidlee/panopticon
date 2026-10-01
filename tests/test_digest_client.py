@@ -268,6 +268,14 @@ def test_large_retry_after_is_capped():
     assert sleeps.calls == [MAX_RETRY_AFTER]
 
 
+@pytest.mark.parametrize("value", ["nan", "inf", "-1"])
+def test_a_non_finite_or_negative_retry_after_falls_back_to_backoff(value: str):
+    sleeps = Sleeps()
+    with serve(reply(429, headers={"Retry-After": value}), ok()) as srv:
+        post(srv.url, sleeps)
+    assert len(sleeps.calls) == 1 and 1 <= sleeps.calls[0] < 2
+
+
 # --- proxy bypass ---------------------------------------------------------------
 
 

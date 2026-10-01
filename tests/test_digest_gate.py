@@ -276,6 +276,25 @@ def test_default_deny_covers_compose_surfaces(url: str):
     assert verdict(url) == Reject(Reason.DENIED_DOMAIN)
 
 
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://www.linkedin.com/a/../messaging/t",
+        "https://www.linkedin.com/./messaging/t",
+        "https://www.linkedin.com/%2e%2e/messaging",
+        "https://www.linkedin.com/messaging;x/t",
+        "https://twitter.com/messages/1",
+    ],
+)
+def test_deny_paths_cannot_be_dodged_by_dot_segments_or_params(url: str):
+    assert verdict(url) == Reject(Reason.DENIED_DOMAIN)
+
+
+@pytest.mark.parametrize("host", ["127.1", "0x7f.1", "10.0.0.010", "example.0x10"])
+def test_a_numeric_final_label_is_an_ip_literal_so_local(host: str):
+    assert verdict(f"http://{host}/") == Reject(Reason.LOCAL_HOST)
+
+
 def test_default_deny_leaves_the_public_paths_of_those_hosts():
     assert verdict("https://github.com/rust-lang/rust") == Pass("github.com")
 

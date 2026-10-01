@@ -7,6 +7,7 @@ and an older SHA is never a fallback when the latest is gated or done.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Collection, Iterable, Mapping
 from dataclasses import dataclass
 from datetime import datetime
@@ -26,7 +27,7 @@ class Judged:
 
 
 def pending(
-    rows: Iterable[Mapping[str, Any]], done: Collection[str], cfg: GateConfig
+    rows: Iterable[Any], done: Collection[str], cfg: GateConfig
 ) -> list[Judged]:
     """Judge every row; newest first, malformed rows last.
 
@@ -36,7 +37,8 @@ def pending(
     """
     keyed: list[tuple[_Key, Mapping[str, Any]]] = []
     bad: list[Judged] = []
-    for i, row in enumerate(rows):
+    for i, raw in enumerate(rows):
+        row: Mapping[str, Any] = raw if isinstance(raw, Mapping) else {}
         at = _captured_at(row)
         if at is None:
             bad.append(Judged(row, Reject(Reason.BAD_ROW)))
@@ -70,6 +72,8 @@ def _captured_at(row: Mapping[str, Any]) -> datetime | None:
         and isinstance(row.get("content_hash"), str)
         and isinstance(quality, int | float)
         and not isinstance(quality, bool)
+        and math.isfinite(quality)
+        and isinstance(row.get("title"), str | None)
         and isinstance(row.get("captured_at"), str)
     )
     if not well_typed:

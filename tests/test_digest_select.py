@@ -110,6 +110,9 @@ def test_same_instant_prefers_the_later_index_row():
         {"quality_score": "high"},
         {"quality_score": True},
         {"quality_score": None},
+        {"quality_score": float("nan")},
+        {"quality_score": float("inf")},
+        {"title": 123},
     ],
 )
 def test_malformed_rows_are_bad_row_and_sort_last(bad: dict[str, Any]):
@@ -121,6 +124,12 @@ def test_malformed_rows_are_bad_row_and_sort_last(bad: dict[str, Any]):
         ("ok", Pass("example.org")),
         (bad.get("content_hash", "bad"), Reject(Reason.BAD_ROW)),
     ]
+
+
+@pytest.mark.parametrize("bad", [[1, 2], "row", None, 7])
+def test_a_non_object_row_is_bad_row_and_does_not_raise(bad: Any):
+    judged = pending([bad, row("ok", "https://example.org/", "2026-01-01T00:00:00Z")], set(), CFG)
+    assert [j.verdict for j in judged] == [Pass("example.org"), Reject(Reason.BAD_ROW)]
 
 
 def test_a_bad_row_never_supersedes_a_good_one():

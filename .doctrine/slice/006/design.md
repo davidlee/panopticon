@@ -155,6 +155,7 @@ panopticon-digest [--root PATH] [--config PATH] [--limit N] [--dry-run] [-v|-vv]
 | malformed config (also with `--dry-run`)          | log the error                               | 2    |
 | `enabled = false`, no `--dry-run`                 | log one line, touch nothing                 | 0    |
 | API key env var unset, no `--dry-run`             | log the variable name                       | 2    |
+| API key has surrounding whitespace or a control character | log the variable name, never the key | 2    |
 | lock held                                         | log and skip                                | 0    |
 | run completes (per-page content failures allowed) | log counts                                  | 0    |
 | breaker trips (§5.4)                              | log the cause                               | 1    |
@@ -162,7 +163,9 @@ panopticon-digest [--root PATH] [--config PATH] [--limit N] [--dry-run] [-v|-vv]
 - **`--dry-run`** needs a valid config but ignores `enabled` and the API key, so
   the user can dry-run before enabling.
   - It prints every row's verdict (including `superseded` and `done`), plus
-    the host, title and input size of each would-be candidate.
+    the host, title and input size of each would-be candidate. A cheap-gate
+    pass whose `<sha>.json` is missing or unreadable is logged as a warning
+    and gets no verdict line (PHASE-05 audit, n5).
   - Unlike the lazy walk, it reads every row's `.json`, so `too_short` is
     reported for all rows.
   - It makes no network call, writes nothing and takes no lock.
@@ -207,16 +210,20 @@ max_output_tokens = 1500
 **Gate**: `gate(url, quality, length | None, cfg) -> Pass | Reject(reason)`.
 Reasons form an enum, so tests and dry-run output are stable. Rules are
 evaluated in table order. `pending` adds three reasons that need the whole
-index: `bad_row` (a malformed index row: non-string url or content_hash,
-non-numeric quality, or an unparseable or naive `captured_at`; user,
-2026-10-01), `superseded` (a newer SHA exists for the URL) and `done`.
+index: `bad_row` (a malformed index row: not a JSON object, non-string url
+or content_hash, non-numeric or non-finite quality, a title that is neither a
+string nor null, or an unparseable or naive `captured_at`; user, 2026-10-01;
+widened by the PHASE-05 audit, m2/n1), `superseded` (a newer SHA exists for
+the URL) and `done`. The shell also marks `bad_row` any candidate whose
+`content_hash` is not 64 lowercase hex characters, before it names a store
+path (n4).
 
 | reason          | rule                                                                      |
 |-----------------|---------------------------------------------------------------------------|
 | `bad_url`       | URL does not parse, or its host does not normalise (non-ASCII, empty label) |
 | `bad_scheme`    | scheme is not `http`/`https` (rejects `file`, `ftp`)                      |
 | `no_host`       | URL has no hostname                                                       |
-| `local_host`    | IP literal (v4/v6); single-label host (no dot); `localhost`; `*.local`, `*.lan`, `*.internal`, `*.home.arpa` |
+| `local_host`    | IP literal (v4/v6, or any host whose final label is a decimal or `0x` number, as WHATWG parses `127.1`); single-label host (no dot); `localhost`; `*.local`, `*.lan`, `*.internal`, `*.home.arpa` |
 | `denied_domain` | host is a `deny` entry's host or under it, and the URL path is under that entry's path prefix, if it has one (D16) |
 | `not_allowed`   | `allow` is set and the host is neither an entry nor under one             |
 | `low_quality`   | `quality_score < min_quality`                                             |
@@ -235,8 +242,9 @@ non-numeric quality, or an unparseable or naive `captured_at`; user,
   but not `evilbank.com`.
 - **Segment-boundary path matching (D16).** `github.com/acme` matches
   `/acme` and `/acme/repo`, but not `/acme2` or `/other/acme`. Both the entry
-  and the URL path are percent-decoded, lowercased, and stripped of empty
-  segments before comparing. Comparing more loosely makes deny fail closed.
+  and the URL path are percent-decoded, lowercased, stripped of empty
+  segments and `;params`, and have `.`/`..` resolved before comparing
+  (PHASE-05 audit, n3). Comparing more loosely makes deny fail closed.
 - **`DEFAULT_DENY`** is a `frozenset` in `gate.py`. It lists generic categories
   only (OQ-4): mail, banking, chat, AI-chat apps, office suites, calendars,
   search engines, and auth/SSO hosts.
@@ -306,8 +314,12 @@ every property as `required`:
     input. A key that lacks permission fails every page, and the
     content-failure breaker catches that (§5.4).
   - Retries use exponential backoff with jitter, at most 4 attempts, with
-    `Retry-After` capped at 60 s. When retries are exhausted, the client
+    `Retry-After` capped at 60 s; a negative or non-finite `Retry-After`
+    falls back to backoff (n2). When retries are exhausted, the client
     raises `TransportFailure`.
+  - The run refuses a key with surrounding whitespace or a control character
+    before any request, because `http.client` echoes an invalid header value,
+    key included, in its exception (I5; PHASE-05 audit, m1).
 - **Logging.** Logs hold only the SHA, the HTTP status and the failure kind —
   never request bodies, page text, headers or error bodies (I5).
 
@@ -356,12 +368,17 @@ every property as `required`:
 ### 5.4 Lifecycle, Operations & Dynamics
 
 **Units** (shipped, not enabled):
-- `systemd/digest.service`: oneshot, `ExecStart=panopticon-digest`,
+- `systemd/digest.service`: oneshot, `ExecStart=panopticon-digest -v` (INFO, so
+  the §5.2 log rows reach the journal; PHASE-05 audit, m4),
   `EnvironmentFile=-%h/.config/panopticon/digest.env`, `TimeoutStartSec=2h`.
   - The env file path is fixed at `~/.config`. systemd cannot honour
     `XDG_CONFIG_HOME` there; README notes it.
-  - The breakers bound the worst case well under 2 h: 3 transport failures ×
-    4 attempts × (60 s + backoff), plus successes at about 10–30 s each.
+  - `TimeoutStartSec` is a backstop, not a bound the breakers guarantee
+    (PHASE-05 audit, m3). Streaks reset on each success, so a provider that
+    alternates successes and failures keeps a run going; at 50 pages that is
+    about 33 transport failures of up to ~7 min each. The 60 s timeout is
+    per socket operation, not per request. Killing a run is safe: records
+    are atomic, the lock dies with the process, and held markers are dropped.
 - `systemd/digest.timer`: daily, `Persistent=true`.
 - New `[project.scripts]` entry: `panopticon-digest`.
 
@@ -394,13 +411,21 @@ every property as `required`:
   - So markers are written only in runs that proved the provider healthy. A
     model that ignores the schema, a bad key returning 403, or a provider-wide
     outage never marks the corpus failed.
-- **5 consecutive content failures** abort the run, and the held markers are
-  discarded.
+- **Streaks count since the last success**, not strictly consecutive results:
+  a content failure does not reset the provider streak, nor the reverse
+  (PHASE-05 audit, m5; recorded as deliberate in notes.md PHASE-03).
+- **5 content failures since the last success** abort the run, and the held
+  markers are discarded.
 - **`ProviderUnavailable`** aborts the run at once.
-- **3 consecutive `TransportFailure` / `provider_error`** results abort the run.
+- **3 `TransportFailure` / `provider_error` results since the last success**
+  abort the run.
   These failures never write a marker; the page is retried next run.
 - **Aborts:** an aborted run exits 1 and writes no marker for the streak that
   aborted it.
+- **Residue (n7):** after at least one success, up to `CONTENT_BREAKER - 1` (4)
+  trailing content failures are flushed as permanent markers at run end. A
+  model that turns schema-ignoring mid-run can therefore mark at most 4 pages
+  per run. Accepted: a marker is removable by hand.
 
 ### 5.5 Invariants, Assumptions & Edge Cases
 
@@ -659,10 +684,10 @@ healthy.**
 - a gated page never reaches the transport (I1);
 - a content failure followed by a success writes the marker;
 - content failures with no success in the run write no marker;
-- 5 consecutive content failures abort and write no markers;
+- 5 content failures since the last success abort and write no markers;
 - a `PageRejected` (400/403) is a content failure, not an abort;
 - `ProviderUnavailable` aborts with exit 1;
-- 3 consecutive transport failures abort;
+- 3 transport failures since the last success abort;
 - the lazy walk stops at `limit`;
 - the exit codes match the §5.2 table.
 

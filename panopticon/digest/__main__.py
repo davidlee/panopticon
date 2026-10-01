@@ -20,6 +20,7 @@ import argparse
 import json
 import logging
 import os
+import re
 import sys
 import tomllib
 from collections import Counter
@@ -38,7 +39,7 @@ from panopticon.digest.client import (
     post_json,
 )
 from panopticon.digest.config import ConfigError, DigestConfig, ProviderConfig, parse_config
-from panopticon.digest.gate import GateConfig, Pass, Reject, Verdict, gate
+from panopticon.digest.gate import GateConfig, Pass, Reason, Reject, Verdict, gate
 from panopticon.digest.prompt import (
     PROMPT_VERSION,
     Digest,
@@ -61,6 +62,7 @@ type Transport = Callable[[str, Mapping[str, str], bytes], bytes]
 
 STAGE = "digest"
 LOCK = "digest.lock"
+_SHA = re.compile(r"[0-9a-f]{64}")
 CONTENT_BREAKER = 5  # content failures since the last success
 PROVIDER_BREAKER = 3  # transport failures / provider_error since the last success
 
@@ -109,6 +111,13 @@ def run(
     if not key:
         log.error("API key environment variable %s is unset", cfg.provider.api_key_env)
         return 2
+    if key != key.strip() or not key.isprintable():
+        # http.client would echo the key in its "Invalid header value" error.
+        log.error(
+            "API key environment variable %s holds whitespace or control characters",
+            cfg.provider.api_key_env,
+        )
+        return 2
     root.mkdir(parents=True, exist_ok=True)
     with exclusive_lock(root / LOCK) as acquired:
         if not acquired:
@@ -140,6 +149,9 @@ def _walk(root: Path, store: StageStore, gate_cfg: GateConfig) -> Iterator[_Seen
             yield _Seen(j.row, j.verdict)
             continue
         sha = j.row["content_hash"]
+        if not _SHA.fullmatch(sha):  # it names store paths below
+            yield _Seen(j.row, Reject(Reason.BAD_ROW))
+            continue
         text = _read_text(shard_path(content, sha, ".json"))
         if text is None:
             log.warning("%s: content record missing or unreadable; skipped", sha)

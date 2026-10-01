@@ -18,6 +18,7 @@ from panopticon.digest.prompt import (
     Failure,
     FailureKind,
     Page,
+    PrivateSurface,
     build_request,
     parse_digest,
 )
@@ -117,6 +118,7 @@ GOOD = {
     "summary": "S.",
     "claims": ["c1", "c2"],
     "entities": [{"name": "Ada", "type": "person"}],
+    "private_surface": "public",
 }
 
 
@@ -130,7 +132,10 @@ def reply(
 
 def test_parses_a_valid_reply():
     assert parse_digest(reply()) == Digest(
-        summary="S.", claims=("c1", "c2"), entities=(Entity(name="Ada", type="person"),)
+        summary="S.",
+        claims=("c1", "c2"),
+        entities=(Entity(name="Ada", type="person"),),
+        private_surface=PrivateSurface.PUBLIC,
     )
 
 
@@ -170,6 +175,10 @@ def test_not_json(content: Any):
         {**GOOD, "entities": ["Ada"]},
         {**GOOD, "entities": [{"name": "Guix", "type": "project"}]},
         {**GOOD, "entities": [{"name": "Ada", "type": "Person"}]},
+        {k: v for k, v in GOOD.items() if k != "private_surface"},
+        {**GOOD, "private_surface": "private"},
+        {**GOOD, "private_surface": None},
+        {**GOOD, "private_surface": "Draft"},
     ],
 )
 def test_bad_shape(content: Any):
@@ -208,8 +217,8 @@ VOCABULARY = [
 ]  # fmt: skip
 
 
-def test_prompt_version_is_3():
-    assert PROMPT_VERSION == "3"
+def test_prompt_version_is_4():
+    assert PROMPT_VERSION == "4"
 
 
 def test_schema_enum_is_the_entity_vocabulary():
@@ -244,3 +253,30 @@ def test_the_entity_limit_is_guidance_so_longer_lists_still_parse():
     many = [{"name": f"E{i}", "type": "concept"} for i in range(ENTITY_LIMIT + 5)]
     digest = parse_digest(reply(json.dumps({**GOOD, "entities": many})))
     assert isinstance(digest, Digest) and len(digest.entities) == ENTITY_LIMIT + 5
+
+
+# private-surface flag (SL-008) -----------------------------------------------
+
+SURFACES = ["public", "draft", "private_message", "account", "personal_record", "other_private"]
+
+
+def test_schema_enum_is_the_surface_vocabulary_and_comes_last():
+    assert DIGEST_SCHEMA["properties"]["private_surface"] == {"type": "string", "enum": SURFACES}
+    assert [s.value for s in PrivateSurface] == SURFACES
+    # generated after the summary, so the judgement cannot shape it (design R3)
+    assert list(DIGEST_SCHEMA["properties"])[-1] == "private_surface"
+    assert DIGEST_SCHEMA["required"][-1] == "private_surface"
+
+
+@pytest.mark.parametrize("surface", SURFACES)
+def test_every_surface_parses(surface: str):
+    digest = parse_digest(reply(json.dumps({**GOOD, "private_surface": surface})))
+    assert isinstance(digest, Digest)
+    assert digest.private_surface == PrivateSurface(surface)
+
+
+def test_system_prompt_defines_every_surface_and_defaults_to_public():
+    system = build_request(PAGE, PROVIDER).body["messages"][0]["content"]
+    for surface in SURFACES:
+        assert f"- {surface}:" in system
+    assert "if unsure, public" in system

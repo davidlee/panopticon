@@ -57,8 +57,10 @@ def add_page(
     return entry["content_hash"]
 
 
-def digest_reply(summary: str = "s") -> bytes:
-    content = json.dumps({"summary": summary, "claims": ["c"], "entities": []})
+def digest_reply(summary: str = "s", surface: str = "public") -> bytes:
+    content = json.dumps(
+        {"summary": summary, "claims": ["c"], "entities": [], "private_surface": surface}
+    )
     return json.dumps({"choices": [{"message": {"content": content}}]}).encode()
 
 
@@ -90,9 +92,7 @@ class Env:
     config: Path
     transport: FakeTransport
 
-    def run(
-        self, *, limit: int | None = None, dry_run: bool = False, key: str | None = KEY
-    ) -> int:
+    def run(self, *, limit: int | None = None, dry_run: bool = False, key: str | None = KEY) -> int:
         return run(
             self.root,
             self.config,
@@ -155,6 +155,13 @@ def test_run_digests_each_candidate_newest_first_and_records_it(env: Env):
     )
     assert rec["input_truncated"] is False and rec["input_chars"] > 1500
     assert (rec["summary"], rec["claims"], rec["entities"]) == ("s", ["c"], [])
+
+
+def test_record_holds_the_private_surface_as_its_bare_value(env: Env):
+    add_page(env.root, 1)
+    env.transport.script = [digest_reply(surface="draft")]
+    env.run()
+    assert [r["private_surface"] for r in env.records()] == ["draft"]
 
 
 def test_run_sends_the_key_only_as_a_bearer_header(env: Env):

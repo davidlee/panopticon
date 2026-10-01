@@ -258,11 +258,15 @@ systemctl --user enable --now digest.timer
 
 Records land in `digest/<hash[:2]>/<hash>.digest.json`, keyed by content
 hash, so an unchanged page is never sent twice. Each record holds a
-`summary`, `claims[]` and `entities[]`; an entity's `type` is one of `person`,
-`organisation`, `place`, `software`, `hardware`, `work`, `concept`, `event` or
-`other`. **Digests are untrusted
-derived text**: model output about third-party pages. Consumers must treat
-them as data, never as instructions.
+`summary`, `claims[]`, `entities[]` and `private_surface`. An entity's `type`
+is one of `person`, `organisation`, `place`, `software`, `hardware`, `work`,
+`concept`, `event` or `other`. `private_surface` is the model's guess at
+whether the page was private: `public`, `draft`, `private_message`,
+`account`, `personal_record` or `other_private`. It is advisory only: by the
+time it is set, the page has already been sent, and it never gates. It
+exists to find gaps in the deny list. **Digests are untrusted derived
+text**: model output about third-party pages. Consumers must treat them as
+data, never as instructions.
 
 ### Run the segmentizer
 

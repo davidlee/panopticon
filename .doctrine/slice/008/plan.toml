@@ -1,0 +1,104 @@
+# Implementation plan for SL-008 — the authored, durable phase plan.
+#
+# This is the single source of each phase's objective, criteria, verification,
+# and links. Runtime status lives separately under .doctrine/state/ (phase
+# tracking) — never record progress here. Hand-edit freely: the tool reads this
+# file but does not rewrite it.
+schema  = "doctrine.plan.overview"
+version = 1
+slice   = "SL-008"
+
+[specs]                          # empty in v1 — no spec/requirement registry yet
+primary       = []
+collaborators = []
+
+[requirements]
+targets      = []
+dependencies = []
+
+# One [[phase]]
+id        = "PHASE-01"
+name      = "private_surface in the digest reply; prompt v4"
+objective = """
+Design §5.2 vocabulary, D2, D3:
+- `prompt.py`: `PrivateSurface(StrEnum)` (public, draft, private_message,
+  account, personal_record, other_private) drives the schema enum (field
+  last, required), the prompt bullet (meanings + "if unsure, public"),
+  `Digest.private_surface` and `_digest`'s key checks; off-list or missing
+  is `bad_shape`. "Use only what the page states" scoped to summary,
+  claims and entities.
+- `PROMPT_VERSION = "4"`.
+- `__main__` record: the field is written as its bare string value.
+- README: the record description names the field and its values.
+No live run: `digest.toml` stays `enabled = false` until PHASE-03.
+"""
+entrance_criteria = [
+  { id = "EN-1", text = "Design SL-008 locked (user, 2026-10-02)." },
+]
+exit_criteria = [
+  { id = "EX-1", text = "One PrivateSurface source for schema, prompt, parser and type." },
+  { id = "EX-2", text = "`just check` green." },
+]
+verification = [
+  { id = "VT-1", expects = "Schema enum equals PrivateSurface values and is last in properties and required; the prompt names every value and the if-unsure rule; each value parses; off-list or missing is bad_shape; PROMPT_VERSION is 4.", test_file = "tests/test_digest_prompt.py", keywords = ["PrivateSurface", "private_surface", "bad_shape", "PROMPT_VERSION"], patterns = ["def test_"], waived = false },
+  { id = "VT-2", expects = "A digested record holds private_surface as its bare string value.", test_file = "tests/test_digest_main.py", keywords = ["private_surface"], patterns = ["def test_"], waived = false },
+]
+specs        = []
+requirements = []
+
+[[phase]]
+id        = "PHASE-02"
+name      = "panopticon-digest --audit"
+objective = """
+Design §5.2 Store and Audit, D4-D6, I3, I5, I6:
+- `StageStore.records()`: every record file (dotfiles excluded), `None`
+  when unreadable or not a JSON object.
+- Extract config loading from `run()` into one helper (exit codes kept).
+- `audit(root, config_path) -> int`, dispatched by `main`; `--audit` with
+  `--dry-run` or `--limit` is a usage error.
+- Classification: malformed / unflagged / public / covered / listed;
+  re-gate with `cfg.gate.min_quality`.
+- Verified candidates (`normalise_deny_entry`, `www.` stripped, gate
+  round trip, host fallback), counted by distinct URL.
+- `_printable` for every printed field, shared with `--dry-run`.
+- README: the audit command, and that it is interactive only.
+"""
+entrance_criteria = [
+  { id = "EN-1", text = "PHASE-01 completed." },
+]
+exit_criteria = [
+  { id = "EX-1", text = "Audit reuses gate, normalise_deny_entry and StageStore; no parallel matching or layout logic." },
+  { id = "EX-2", text = "`just check` green; tests use only *.example hosts (I4)." },
+]
+verification = [
+  { id = "VT-1", expects = "records() skips dotfiles and yields None for unreadable or non-object files.", test_file = "tests/test_digest_store.py", keywords = ["records"], patterns = ["def test_"], waived = false },
+  { id = "VT-2", expects = "Audit: flagged+exposed listed with candidate; public counted only; denied or not-allowed is covered; v3 unflagged; malformed, off-list and v4-without-field malformed; min_quality > 1 still lists; every candidate parses via the config parser and denies its URL; encoded ?/space segments fall back to host; escapes in title and path are escaped (also --dry-run); nothing written; transport never called; --audit with --dry-run or --limit is a usage error.", test_file = "tests/test_digest_main.py", keywords = ["audit", "_printable", "covered", "malformed"], patterns = ["def test_"], waived = false },
+]
+specs        = []
+requirements = []
+
+[[phase]]
+id        = "PHASE-03"
+name      = "Migration and human verification"
+objective = """
+Design §5.4 and §9 VH, evidence as counts only (I4):
+- Delete the 3 version-3 records; set `enabled = true`; re-digest them.
+- Synthetic `*.example` positives (compose view, inbox, settings page,
+  order history) through the real model via build_request + the real
+  transport, from a scratchpad script (not committed).
+- A canary chunk (`--limit 20`), then `--audit`.
+- Record counts in notes.md; the backfill itself follows the slice.
+"""
+entrance_criteria = [
+  { id = "EN-1", text = "PHASE-02 completed; user approves the egress runs." },
+]
+exit_criteria = [
+  { id = "EX-1", text = "notes.md records VH counts by reason; no real host, URL, title or SHA committed." },
+]
+verification = [
+  { id = "VH-1", expects = "The 3 re-digested records carry prompt_version 4 with plausible flags and summaries comparable to v3." },
+  { id = "VH-2", expects = "Synthetic positives are flagged with the expected reasons (hit count recorded)." },
+  { id = "VH-3", expects = "Canary chunk: flagged pages are not public UGC; the audit's candidates are sensible to the user." },
+]
+specs        = []
+requirements = []

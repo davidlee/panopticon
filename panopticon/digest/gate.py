@@ -3,7 +3,8 @@
 A pure function of the URL, the quality score, the page length and the gate
 policy. It decides whether a page may reach a model; a model never does.
 Deny entries (``DEFAULT_DENY`` plus the user's) and the local-host rules always
-apply; ``allow`` can only narrow what deny lets through.
+apply; ``allow`` can only narrow what deny lets through. A deny entry is a host,
+or a host plus a path prefix (``github.com/acme``), matched locally only.
 """
 
 from __future__ import annotations
@@ -12,7 +13,7 @@ import ipaddress
 import re
 from dataclasses import dataclass
 from enum import StrEnum
-from urllib.parse import urlsplit
+from urllib.parse import unquote, urlsplit
 
 
 class Reason(StrEnum):
@@ -49,7 +50,10 @@ type Verdict = Pass | Reject
 
 @dataclass(frozen=True)
 class GateConfig:
-    """Gate policy. ``deny`` already includes ``DEFAULT_DENY``; ``allow=None`` means unset."""
+    """Gate policy. ``deny`` already includes ``DEFAULT_DENY``; ``allow=None`` means unset.
+
+    ``deny`` entries are in :func:`normalise_deny_entry` form; ``allow`` entries are hosts.
+    """
 
     deny: frozenset[str]
     allow: frozenset[str] | None
@@ -58,7 +62,7 @@ class GateConfig:
 
 
 # Generic, widely used hosts by category; none drawn from the user's history
-# (design OQ-4). Matching is by label-boundary suffix.
+# (design OQ-4). Hosts match by label-boundary suffix, paths by segment prefix.
 DEFAULT_DENY: frozenset[str] = frozenset(
     {
         # search / Google account surfaces
@@ -83,6 +87,10 @@ DEFAULT_DENY: frozenset[str] = frozenset(
         "westpac.com.au", "nab.com.au",
         # government
         "my.gov.au", "ato.gov.au", "servicesaustralia.gov.au",
+        # private paths on public hosts: messages, account settings, checkout
+        "linkedin.com/messaging", "x.com/messages", "x.com/i/chat", "facebook.com/messages",
+        "instagram.com/direct", "reddit.com/message", "reddit.com/chat",
+        "github.com/settings", "amazon.com/checkout", "amazon.com.au/checkout",
     }
 )  # fmt: skip
 
@@ -109,6 +117,20 @@ def normalise_host(raw: str) -> str | None:
     return None
 
 
+def normalise_deny_entry(raw: str) -> str | None:
+    """``host`` or ``host/path`` with a normalised host and path; ``None`` if malformed.
+
+    A ``?``, ``#`` or whitespace could never match a URL path, so it is an error,
+    not a silent miss.
+    """
+    host, _, path = raw.partition("/")
+    norm = normalise_host(host)
+    if norm is None or any(c in path for c in "?#") or any(c.isspace() for c in path):
+        return None
+    path = _normalise_path(path)
+    return norm + path if path != "/" else norm
+
+
 def gate(url: str, quality: float, length: int | None, cfg: GateConfig) -> Verdict:
     """Apply the §5.2 rules in table order. ``length=None`` defers ``too_short``."""
     try:
@@ -125,7 +147,7 @@ def gate(url: str, quality: float, length: int | None, cfg: GateConfig) -> Verdi
         return Reject(Reason.NO_HOST)
     if _is_local(host):
         return Reject(Reason.LOCAL_HOST)
-    if _under_any(host, cfg.deny):
+    if _denied(host, _normalise_path(parts.path), cfg.deny):
         return Reject(Reason.DENIED_DOMAIN)
     if cfg.allow is not None and not _under_any(host, cfg.allow):
         return Reject(Reason.NOT_ALLOWED)
@@ -146,6 +168,22 @@ def _is_ip_literal(host: str) -> bool:
 
 def _is_local(host: str) -> bool:
     return _is_ip_literal(host) or "." not in host or _under_any(host, _LOCAL_SUFFIXES)
+
+
+def _normalise_path(path: str) -> str:
+    """Percent-decoded, lowercased, empty segments dropped: compares wider, so deny fails closed."""
+    return "/" + "/".join(seg for seg in unquote(path).lower().split("/") if seg)
+
+
+def _denied(host: str, path: str, deny: frozenset[str]) -> bool:
+    """True if some entry's host covers ``host`` and its path prefix (if any) covers ``path``."""
+    for entry in deny:
+        entry_host, _, prefix = entry.partition("/")
+        if _under_any(host, (entry_host,)) and (
+            not prefix or path == f"/{prefix}" or path.startswith(f"/{prefix}/")
+        ):
+            return True
+    return False
 
 
 def _under_any(host: str, domains: frozenset[str] | tuple[str, ...]) -> bool:

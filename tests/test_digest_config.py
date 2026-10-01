@@ -157,11 +157,16 @@ def test_rejects_a_non_bool_enabled():
 
 
 @pytest.mark.parametrize("field", ["deny", "allow"])
-@pytest.mark.parametrize(
-    "entry", ["faß.de", "https://bank.com", "bank.com/x", "a..b", "", "bad host.com"]
-)
+@pytest.mark.parametrize("entry", ["faß.de", "https://bank.com", "a..b", "", "bad host.com"])
 def test_rejects_a_non_normalisable_domain_entry(field: str, entry: str):
     rejects(with_(f"gate.{field}", ["ok.example", entry]), f"gate.{field}")
+
+
+def test_deny_takes_a_path_prefix_and_allow_does_not():
+    cfg = parse_config(with_("gate.deny", ["GitHub.com/Acme/"]))
+    assert "github.com/acme" in cfg.gate.deny
+    rejects(with_("gate.allow", ["github.com/acme"]), "gate.allow")
+    rejects(with_("gate.deny", ["github.com/a?b"]), "gate.deny")
 
 
 @pytest.mark.parametrize("field", ["deny", "allow"])

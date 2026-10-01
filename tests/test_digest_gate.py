@@ -14,10 +14,16 @@ from panopticon.digest.gate import (
     Reason,
     Reject,
     gate,
+    normalise_deny_entry,
     normalise_host,
 )
 
-CFG = GateConfig(deny=DEFAULT_DENY | {"bank.com"}, allow=None, min_chars=1500, min_quality=0.7)
+CFG = GateConfig(
+    deny=DEFAULT_DENY | {"bank.com", "git.example/acme"},
+    allow=None,
+    min_chars=1500,
+    min_quality=0.7,
+)
 
 
 def verdict(url: str, quality: float = 1.0, length: int | None = None, cfg: GateConfig = CFG):
@@ -58,6 +64,30 @@ def test_normalise_host_canonicalises(raw: str, expected: str):
 )
 def test_normalise_host_rejects(raw: str):
     assert normalise_host(raw) is None
+
+
+# normalise_deny_entry ------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("Bank.COM.", "bank.com"),
+        ("bank.com/", "bank.com"),
+        ("GitHub.com/Acme/", "github.com/acme"),
+        ("github.com//acme//repo", "github.com/acme/repo"),
+    ],
+)
+def test_normalise_deny_entry_canonicalises(raw: str, expected: str):
+    assert normalise_deny_entry(raw) == expected
+
+
+@pytest.mark.parametrize(
+    "raw",
+    ["", "/acme", "https://bank.com", "faß.de/x", "bank.com/a?b", "bank.com/a#b", "bank.com/a b"],
+)
+def test_normalise_deny_entry_rejects(raw: str):
+    assert normalise_deny_entry(raw) is None
 
 
 # reasons, in table order ---------------------------------------------------
@@ -126,6 +156,41 @@ def test_denied_domain_matches_on_label_boundary_only(url: str):
     assert verdict(url) == Pass(normalise_host(url.split("/")[2]))
 
 
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://git.example/acme",
+        "https://git.example/acme/",
+        "https://git.example/acme/repo/blob/main/x.py",
+        "https://www.git.example/acme/repo",
+        "https://GIT.example/ACME/Repo",
+        "https://git.example//acme/repo",
+        "https://git.example/%61cme/repo",
+    ],
+)
+def test_denied_path_matches_the_prefix_and_below(url: str):
+    assert verdict(url) == Reject(Reason.DENIED_DOMAIN)
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://git.example/",
+        "https://git.example/acme2/repo",
+        "https://git.example/other/acme",
+        "https://evilgit.example/acme",
+    ],
+)
+def test_denied_path_matches_on_segment_boundary_only(url: str):
+    assert verdict(url) == Pass(normalise_host(url.split("/")[2]))
+
+
+def test_allow_never_passes_a_denied_path():
+    cfg = replace(CFG, allow=frozenset({"git.example"}))
+    assert verdict("https://git.example/acme/repo", cfg=cfg) == Reject(Reason.DENIED_DOMAIN)
+    assert verdict("https://git.example/other/repo", cfg=cfg) == Pass("git.example")
+
+
 def test_allow_never_passes_a_denied_host():
     cfg = replace(CFG, allow=frozenset({"bank.com", "google.com"}))
     assert verdict("https://bank.com/", cfg=cfg) == Reject(Reason.DENIED_DOMAIN)
@@ -173,7 +238,7 @@ def test_reasons_are_checked_in_table_order():
 
 def test_default_deny_entries_are_already_normalised():
     assert DEFAULT_DENY
-    assert all(normalise_host(e) == e for e in DEFAULT_DENY)
+    assert all(normalise_deny_entry(e) == e for e in DEFAULT_DENY)
 
 
 @pytest.mark.parametrize(
@@ -182,6 +247,23 @@ def test_default_deny_entries_are_already_normalised():
 )
 def test_default_deny_covers_the_categories(host: str):
     assert verdict(f"https://{host}/") == Reject(Reason.DENIED_DOMAIN)
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://www.linkedin.com/messaging/thread/1/",
+        "https://www.reddit.com/message/inbox",
+        "https://github.com/settings/tokens",
+        "https://www.amazon.com.au/checkout/p/1",
+    ],
+)
+def test_default_deny_covers_private_paths_on_public_hosts(url: str):
+    assert verdict(url) == Reject(Reason.DENIED_DOMAIN)
+
+
+def test_default_deny_leaves_the_public_paths_of_those_hosts():
+    assert verdict("https://github.com/rust-lang/rust") == Pass("github.com")
 
 
 def test_default_deny_applies_when_config_omits_deny():

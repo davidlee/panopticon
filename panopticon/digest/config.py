@@ -13,13 +13,19 @@ from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlsplit
 
-from panopticon.digest.gate import DEFAULT_DENY, GateConfig, normalise_host
+from panopticon.digest.gate import (
+    DEFAULT_DENY,
+    GateConfig,
+    normalise_deny_entry,
+    normalise_host,
+)
 
 _MISSING = object()
 _OPENROUTER = "https://openrouter.ai/api/v1/chat/completions"
 _POS_INT = "a positive integer"
 _STR = "a non-empty string"
 _HOSTS = "a list of hostnames (lowercase ASCII; punycode for IDN)"
+_DENY = "a list of hostnames, each with an optional /path prefix"
 
 
 class ConfigError(ValueError):
@@ -56,10 +62,11 @@ def parse_config(raw: Mapping[str, Any]) -> DigestConfig:
 
 def _parse_gate(raw: Any) -> GateConfig:
     t = _table(raw, "gate", {"deny", "allow", "min_chars", "min_quality"})
-    allow = _field(t, "gate", "allow", None, _is_host_list, _HOSTS)
+    allow = _field(t, "gate", "allow", None, _is_list_of(normalise_host), _HOSTS)
+    deny = _field(t, "gate", "deny", [], _is_list_of(normalise_deny_entry), _DENY)
     return GateConfig(
-        deny=DEFAULT_DENY | _hosts(_field(t, "gate", "deny", [], _is_host_list, _HOSTS)),
-        allow=None if allow is None else _hosts(allow),
+        deny=DEFAULT_DENY | _normalised(deny, normalise_deny_entry),
+        allow=None if allow is None else _normalised(allow, normalise_host),
         min_chars=_field(t, "gate", "min_chars", 1500, _is_positive_int, _POS_INT),
         min_quality=float(
             _field(t, "gate", "min_quality", 0.7, _is_positive_number, "a positive number")
@@ -116,9 +123,9 @@ def _field(
     return table[key]
 
 
-def _hosts(entries: list[str]) -> frozenset[str]:
-    """Normalise already-validated host entries."""
-    return frozenset(h for e in entries if (h := normalise_host(e)))
+def _normalised(entries: list[str], normalise: Callable[[str], str | None]) -> frozenset[str]:
+    """Normalise entries already validated by :func:`_is_list_of`."""
+    return frozenset(n for e in entries if (n := normalise(e)))
 
 
 def _is_bool(v: Any) -> bool:
@@ -148,7 +155,8 @@ def _is_https_url(v: Any) -> bool:
         return False
 
 
-def _is_host_list(v: Any) -> bool:
-    return isinstance(v, list) and all(
-        isinstance(e, str) and normalise_host(e) is not None for e in v
+def _is_list_of(normalise: Callable[[str], str | None]) -> Callable[[Any], bool]:
+    """A validator: a list of strings that each ``normalise``."""
+    return lambda v: isinstance(v, list) and all(
+        isinstance(e, str) and normalise(e) is not None for e in v
     )

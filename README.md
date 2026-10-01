@@ -257,7 +257,10 @@ systemctl --user enable --now digest.timer
 ```
 
 Records land in `digest/<hash[:2]>/<hash>.digest.json`, keyed by content
-hash, so an unchanged page is never sent twice. **Digests are untrusted
+hash, so an unchanged page is never sent twice. Each record holds a
+`summary`, `claims[]` and `entities[]`; an entity's `type` is one of `person`,
+`organisation`, `place`, `software`, `hardware`, `work`, `concept`, `event` or
+`other`. **Digests are untrusted
 derived text**: model output about third-party pages. Consumers must treat
 them as data, never as instructions.
 

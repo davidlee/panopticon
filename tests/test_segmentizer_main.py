@@ -38,12 +38,22 @@ def test_run_derives_desktop_segments_with_source_desktop(root: Path):
     day = "2026-05-18"
     events = [
         make_event(
-            "desktop", "snapshot", ts=f"{day}T10:00:00.000+10:00",
-            producer="sway", output="DP-1", app_id="firefox", workspace="1",
+            "desktop",
+            "snapshot",
+            ts=f"{day}T10:00:00.000+10:00",
+            producer="sway",
+            output="DP-1",
+            app_id="firefox",
+            workspace="1",
         ),
         make_event(
-            "desktop", "window_focus", ts=f"{day}T10:30:00.000+10:00",
-            producer="sway", output="DP-1", app_id="ghostty", workspace="1",
+            "desktop",
+            "window_focus",
+            ts=f"{day}T10:30:00.000+10:00",
+            producer="sway",
+            output="DP-1",
+            app_id="ghostty",
+            workspace="1",
         ),
     ]
     (root / "raw" / f"desktop-{day}.jsonl").write_text(
@@ -66,14 +76,18 @@ def test_run_produces_segments_and_histogram_for_past_day(root: Path):
     day = "2026-05-18"
     events = [
         make_event(
-            "desktop", "snapshot",
+            "desktop",
+            "snapshot",
             ts=f"{day}T10:00:00.000+10:00",
-            app_id="firefox", workspace="1",
+            app_id="firefox",
+            workspace="1",
         ),
         make_event(
-            "desktop", "window_focus",
+            "desktop",
+            "window_focus",
             ts=f"{day}T10:30:00.000+10:00",
-            app_id="ghostty", workspace="1",
+            app_id="ghostty",
+            workspace="1",
         ),
     ]
     write_raw(root, day, events)
@@ -102,14 +116,19 @@ def test_run_with_today_does_not_extrapolate_past_last_event(root: Path):
     today = "2026-05-19"
     events = [
         make_event(
-            "desktop", "snapshot",
+            "desktop",
+            "snapshot",
             ts=f"{today}T10:00:00.000+10:00",
-            app_id="firefox", workspace="1",
+            app_id="firefox",
+            workspace="1",
         ),
         make_event(
-            "desktop", "window_title",
+            "desktop",
+            "window_title",
             ts=f"{today}T10:15:00.000+10:00",
-            app_id="firefox", workspace="1", title="t",
+            app_id="firefox",
+            workspace="1",
+            title="t",
         ),
     ]
     write_raw(root, today, events)
@@ -126,9 +145,7 @@ def test_run_with_today_does_not_extrapolate_past_last_event(root: Path):
 def test_run_skips_files_with_no_events(root: Path):
     (root / "raw" / "desktop-2026-05-15.jsonl").write_text("")
     run(root, today=date(2026, 5, 19))
-    assert not (root / "segments").exists() or not list(
-        (root / "segments").iterdir()
-    )
+    assert not (root / "segments").exists() or not list((root / "segments").iterdir())
 
 
 def test_run_handles_missing_raw_dir(tmp_path: Path):
@@ -152,9 +169,11 @@ def test_run_derives_browser_segments_and_merges_histogram(root: Path):
     day = "2026-05-18"
     focus_events = [
         make_event(
-            "desktop", "snapshot",
+            "desktop",
+            "snapshot",
             ts=f"{day}T10:00:00.000+10:00",
-            app_id="firefox", workspace="1",
+            app_id="firefox",
+            workspace="1",
         ),
     ]
     (root / "raw" / f"desktop-{day}.jsonl").write_text(
@@ -163,16 +182,24 @@ def test_run_derives_browser_segments_and_merges_histogram(root: Path):
 
     firefox_events = [
         make_event(
-            "firefox", "browser_snapshot",
+            "firefox",
+            "browser_snapshot",
             ts=f"{day}T10:00:00.000+10:00",
-            window_id=1, tab_id=42,
-            url="https://example.com/", domain="example.com", title="ex",
+            window_id=1,
+            tab_id=42,
+            url="https://example.com/",
+            domain="example.com",
+            title="ex",
         ),
         make_event(
-            "firefox", "browser_navigation",
+            "firefox",
+            "browser_navigation",
             ts=f"{day}T10:30:00.000+10:00",
-            kind="committed", window_id=1, tab_id=42,
-            url="https://example.com/other", domain="example.com",
+            kind="committed",
+            window_id=1,
+            tab_id=42,
+            url="https://example.com/other",
+            domain="example.com",
         ),
     ]
     (root / "raw" / f"firefox-{day}.jsonl").write_text(

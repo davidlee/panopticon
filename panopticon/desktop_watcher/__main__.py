@@ -30,15 +30,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--compositor",
         choices=["auto", "sway", "niri", "umbriel"],
         default="auto",
-        help="which compositor adapter to use; 'auto' probes for a live one "
-        "(default: auto)",
+        help="which compositor adapter to use; 'auto' probes for a live one (default: auto)",
     )
     parser.add_argument(
         "--state-dir",
         type=Path,
         default=None,
-        help="state root; defaults to $XDG_STATE_HOME/behaviour or "
-        "~/.local/state/behaviour",
+        help="state root; defaults to $XDG_STATE_HOME/behaviour or ~/.local/state/behaviour",
     )
     parser.add_argument(
         "--verbose",

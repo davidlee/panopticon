@@ -75,9 +75,7 @@ class Event:
         except json.JSONDecodeError as exc:
             raise MalformedEventError(f"invalid JSON: {exc}") from exc
         if not isinstance(parsed, dict):
-            raise MalformedEventError(
-                f"event must be a JSON object, got {type(parsed).__name__}"
-            )
+            raise MalformedEventError(f"event must be a JSON object, got {type(parsed).__name__}")
         return cls.from_dict(parsed)
 
 

@@ -48,17 +48,13 @@ def test_source_field_stripped() -> None:
 
 
 def test_v_field_stripped() -> None:
-    _, _, fields = validate.validate_and_redact(
-        {"event": "browser_tab_active", "ts": "t", "v": 99}
-    )
+    _, _, fields = validate.validate_and_redact({"event": "browser_tab_active", "ts": "t", "v": 99})
     assert "v" not in fields
 
 
 def test_incognito_dropped() -> None:
     with pytest.raises(validate.ValidationError):
-        validate.validate_and_redact(
-            {"event": "browser_tab_active", "ts": "t", "incognito": True}
-        )
+        validate.validate_and_redact({"event": "browser_tab_active", "ts": "t", "incognito": True})
 
 
 def test_url_query_and_fragment_stripped() -> None:
@@ -244,9 +240,7 @@ def test_other_query_params_still_stripped(url: str, expected: str) -> None:
 
 def test_extension_identity_params_match_host() -> None:
     """The extension's first-pass map must equal the host's (ISS-003)."""
-    js = (
-        Path(__file__).parent.parent / "firefox-extension" / "background.js"
-    ).read_text()
+    js = (Path(__file__).parent.parent / "firefox-extension" / "background.js").read_text()
     m = re.search(r"const IDENTITY_PARAMS = (\{.*?\});", js, re.DOTALL)
     assert m, "IDENTITY_PARAMS not found in background.js"
     ext = {host: tuple(names) for host, names in json.loads(m.group(1)).items()}

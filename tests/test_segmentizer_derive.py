@@ -50,15 +50,25 @@ def reconn(t: str):
 
 def d_snap(t: str, app: str, ws: str, *, producer="sway", output="DP-1"):
     return make_event(
-        "desktop", "snapshot", ts=t,
-        producer=producer, output=output, app_id=app, workspace=ws,
+        "desktop",
+        "snapshot",
+        ts=t,
+        producer=producer,
+        output=output,
+        app_id=app,
+        workspace=ws,
     )
 
 
 def d_focus(t: str, app: str, ws: str, *, producer="sway", output="DP-1"):
     return make_event(
-        "desktop", "window_focus", ts=t,
-        producer=producer, output=output, app_id=app, workspace=ws,
+        "desktop",
+        "window_focus",
+        ts=t,
+        producer=producer,
+        output=output,
+        app_id=app,
+        workspace=ws,
     )
 
 
@@ -95,10 +105,15 @@ def test_close_at_emits_trailing_segment():
 
 
 def test_app_change_closes_segment():
-    segs = list(derive_segments([
-        snap(ts(0), "firefox", "1"),
-        focus(ts(2), "ghostty", "1"),
-    ], close_at=ts(5)))
+    segs = list(
+        derive_segments(
+            [
+                snap(ts(0), "firefox", "1"),
+                focus(ts(2), "ghostty", "1"),
+            ],
+            close_at=ts(5),
+        )
+    )
     assert [s.fields["app_id"] for s in segs] == ["firefox", "ghostty"]
     assert segs[0].fields["start_ts"] == ts(0)
     assert segs[0].fields["end_ts"] == ts(2)
@@ -108,11 +123,16 @@ def test_app_change_closes_segment():
 
 
 def test_workspace_change_closes_segment():
-    segs = list(derive_segments([
-        snap(ts(0), "firefox", "1"),
-        ws_focus(ts(1), "2"),
-        focus(ts(1, 1), "firefox", "2"),
-    ], close_at=ts(5)))
+    segs = list(
+        derive_segments(
+            [
+                snap(ts(0), "firefox", "1"),
+                ws_focus(ts(1), "2"),
+                focus(ts(1, 1), "firefox", "2"),
+            ],
+            close_at=ts(5),
+        )
+    )
     # ws_focus alone shifts (firefox,1) → (firefox,2); subsequent window_focus
     # confirms same tuple and does not split further.
     assert len(segs) == 2
@@ -128,21 +148,31 @@ def test_workspace_change_closes_segment():
 
 
 def test_title_change_does_not_split():
-    segs = list(derive_segments([
-        snap(ts(0), "firefox", "1"),
-        title(ts(1), "firefox", "1", "Foo"),
-        title(ts(2), "firefox", "1", "Bar"),
-    ], close_at=ts(5)))
+    segs = list(
+        derive_segments(
+            [
+                snap(ts(0), "firefox", "1"),
+                title(ts(1), "firefox", "1", "Foo"),
+                title(ts(2), "firefox", "1", "Bar"),
+            ],
+            close_at=ts(5),
+        )
+    )
     assert len(segs) == 1
     assert segs[0].fields["start_ts"] == ts(0)
     assert segs[0].fields["end_ts"] == ts(5)
 
 
 def test_same_tuple_focus_does_not_split():
-    segs = list(derive_segments([
-        snap(ts(0), "firefox", "1"),
-        focus(ts(2), "firefox", "1"),
-    ], close_at=ts(5)))
+    segs = list(
+        derive_segments(
+            [
+                snap(ts(0), "firefox", "1"),
+                focus(ts(2), "firefox", "1"),
+            ],
+            close_at=ts(5),
+        )
+    )
     assert len(segs) == 1
 
 
@@ -150,12 +180,17 @@ def test_same_tuple_focus_does_not_split():
 
 
 def test_disconnect_closes_segment_and_pauses():
-    segs = list(derive_segments([
-        snap(ts(0), "firefox", "1"),
-        disc(ts(2)),
-        reconn(ts(3)),
-        snap(ts(3), "firefox", "1"),
-    ], close_at=ts(5)))
+    segs = list(
+        derive_segments(
+            [
+                snap(ts(0), "firefox", "1"),
+                disc(ts(2)),
+                reconn(ts(3)),
+                snap(ts(3), "firefox", "1"),
+            ],
+            close_at=ts(5),
+        )
+    )
     # firefox/1 0–2, pause, firefox/1 3–5.
     assert len(segs) == 2
     assert segs[0].fields["end_ts"] == ts(2)
@@ -164,11 +199,17 @@ def test_disconnect_closes_segment_and_pauses():
 
 def test_compositor_disconnected_also_closes_segment():
     # F6 dual-name close: the neutral name closes just like the legacy one.
-    segs = list(derive_segments([
-        d_snap(ts(0), "firefox", "1"),
-        comp_disc(ts(2)),
-        d_snap(ts(3), "firefox", "1"),
-    ], source="desktop", close_at=ts(5)))
+    segs = list(
+        derive_segments(
+            [
+                d_snap(ts(0), "firefox", "1"),
+                comp_disc(ts(2)),
+                d_snap(ts(3), "firefox", "1"),
+            ],
+            source="desktop",
+            close_at=ts(5),
+        )
+    )
     assert len(segs) == 2
     assert segs[0].fields["end_ts"] == ts(2)
     assert segs[1].fields["start_ts"] == ts(3)
@@ -178,9 +219,7 @@ def test_compositor_disconnected_also_closes_segment():
 
 
 def test_desktop_segment_carries_producer_and_output():
-    segs = list(derive_segments(
-        [d_snap(ts(0), "firefox", "1")], source="desktop", close_at=ts(5)
-    ))
+    segs = list(derive_segments([d_snap(ts(0), "firefox", "1")], source="desktop", close_at=ts(5)))
     assert len(segs) == 1
     assert segs[0].source == "desktop"
     assert segs[0].fields["producer"] == "sway"
@@ -191,10 +230,16 @@ def test_desktop_segment_carries_producer_and_output():
 def test_output_change_splits_segment_even_with_same_app_workspace():
     # D8 anti-conflation: same (app_id, workspace) name on a different output
     # is a distinct focus segment.
-    segs = list(derive_segments([
-        d_focus(ts(0), "firefox", "1", output="DP-1"),
-        d_focus(ts(2), "firefox", "1", output="HDMI-1"),
-    ], source="desktop", close_at=ts(5)))
+    segs = list(
+        derive_segments(
+            [
+                d_focus(ts(0), "firefox", "1", output="DP-1"),
+                d_focus(ts(2), "firefox", "1", output="HDMI-1"),
+            ],
+            source="desktop",
+            close_at=ts(5),
+        )
+    )
     assert len(segs) == 2
     assert segs[0].fields["output"] == "DP-1"
     assert segs[0].fields["end_ts"] == ts(2)
@@ -203,10 +248,16 @@ def test_output_change_splits_segment_even_with_same_app_workspace():
 
 
 def test_producer_change_splits_segment():
-    segs = list(derive_segments([
-        d_focus(ts(0), "firefox", "1", producer="sway"),
-        d_focus(ts(2), "firefox", "1", producer="niri"),
-    ], source="desktop", close_at=ts(5)))
+    segs = list(
+        derive_segments(
+            [
+                d_focus(ts(0), "firefox", "1", producer="sway"),
+                d_focus(ts(2), "firefox", "1", producer="niri"),
+            ],
+            source="desktop",
+            close_at=ts(5),
+        )
+    )
     assert [s.fields["producer"] for s in segs] == ["sway", "niri"]
 
 
@@ -214,18 +265,28 @@ def test_producer_change_splits_segment():
 
 
 def test_unfocused_state_yields_nothing():
-    segs = list(derive_segments([
-        snap(ts(0), None, None),
-    ], close_at=ts(5)))
+    segs = list(
+        derive_segments(
+            [
+                snap(ts(0), None, None),
+            ],
+            close_at=ts(5),
+        )
+    )
     assert segs == []
 
 
 def test_focus_then_unfocus_then_focus():
-    segs = list(derive_segments([
-        snap(ts(0), "firefox", "1"),
-        snap(ts(2), None, None),
-        snap(ts(3), "ghostty", "1"),
-    ], close_at=ts(5)))
+    segs = list(
+        derive_segments(
+            [
+                snap(ts(0), "firefox", "1"),
+                snap(ts(2), None, None),
+                snap(ts(3), "ghostty", "1"),
+            ],
+            close_at=ts(5),
+        )
+    )
     assert [s.fields["app_id"] for s in segs] == ["firefox", "ghostty"]
     assert segs[0].fields["end_ts"] == ts(2)
     assert segs[1].fields["start_ts"] == ts(3)
@@ -235,38 +296,58 @@ def test_focus_then_unfocus_then_focus():
 
 
 def test_window_title_recorded_as_last_title():
-    segs = list(derive_segments([
-        snap(ts(0), "firefox", "1"),
-        title(ts(1), "firefox", "1", "Foo"),
-    ], close_at=ts(5)))
+    segs = list(
+        derive_segments(
+            [
+                snap(ts(0), "firefox", "1"),
+                title(ts(1), "firefox", "1", "Foo"),
+            ],
+            close_at=ts(5),
+        )
+    )
     assert len(segs) == 1
     assert segs[0].fields["last_title"] == "Foo"
 
 
 def test_no_title_observed_omits_last_title():
-    segs = list(derive_segments([
-        snap(ts(0), "firefox", "1"),
-    ], close_at=ts(5)))
+    segs = list(
+        derive_segments(
+            [
+                snap(ts(0), "firefox", "1"),
+            ],
+            close_at=ts(5),
+        )
+    )
     assert len(segs) == 1
     assert "last_title" not in segs[0].fields
 
 
 def test_window_title_does_not_split_segment():
-    segs = list(derive_segments([
-        snap(ts(0), "firefox", "1"),
-        title(ts(1), "firefox", "1", "Foo"),
-        title(ts(2), "firefox", "1", "Bar"),
-    ], close_at=ts(5)))
+    segs = list(
+        derive_segments(
+            [
+                snap(ts(0), "firefox", "1"),
+                title(ts(1), "firefox", "1", "Foo"),
+                title(ts(2), "firefox", "1", "Bar"),
+            ],
+            close_at=ts(5),
+        )
+    )
     assert len(segs) == 1
     assert segs[0].fields["last_title"] == "Bar"
 
 
 def test_last_title_takes_most_recent_value():
-    segs = list(derive_segments([
-        snap(ts(0), "firefox", "1"),
-        title(ts(1), "firefox", "1", "Foo"),
-        title(ts(2), "firefox", "1", "Bar"),
-        title(ts(3), "firefox", "1", "Baz"),
-    ], close_at=ts(5)))
+    segs = list(
+        derive_segments(
+            [
+                snap(ts(0), "firefox", "1"),
+                title(ts(1), "firefox", "1", "Foo"),
+                title(ts(2), "firefox", "1", "Bar"),
+                title(ts(3), "firefox", "1", "Baz"),
+            ],
+            close_at=ts(5),
+        )
+    )
     assert len(segs) == 1
     assert segs[0].fields["last_title"] == "Baz"

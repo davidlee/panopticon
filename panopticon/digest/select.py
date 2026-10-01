@@ -26,9 +26,7 @@ class Judged:
     verdict: Verdict
 
 
-def pending(
-    rows: Iterable[Any], done: Collection[str], cfg: GateConfig
-) -> list[Judged]:
+def pending(rows: Iterable[Any], done: Collection[str], cfg: GateConfig) -> list[Judged]:
     """Judge every row; newest first, malformed rows last.
 
     Precedence per row: ``bad_row``, ``superseded``, ``done``, then the gate

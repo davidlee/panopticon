@@ -13,6 +13,7 @@ from panopticon.digest.prompt import (
     PROMPT_VERSION,
     Digest,
     Entity,
+    EntityType,
     Failure,
     FailureKind,
     Page,
@@ -166,6 +167,8 @@ def test_not_json(content: Any):
         {**GOOD, "entities": [{"name": "Ada", "type": "person", "x": 1}]},
         {**GOOD, "entities": [{"name": "Ada", "type": None}]},
         {**GOOD, "entities": ["Ada"]},
+        {**GOOD, "entities": [{"name": "Guix", "type": "project"}]},
+        {**GOOD, "entities": [{"name": "Ada", "type": "Person"}]},
     ],
 )
 def test_bad_shape(content: Any):
@@ -194,3 +197,36 @@ def test_provider_error(raw: bytes):
 
 def test_deeply_nested_content_is_total():
     assert parse_digest(reply("[" * 100_000)) == Failure(FailureKind.NOT_JSON)
+
+
+# entity vocabulary (SL-007) --------------------------------------------------
+
+VOCABULARY = [
+    "person", "organisation", "place", "software", "hardware",
+    "work", "concept", "event", "other",
+]  # fmt: skip
+
+
+def test_prompt_version_is_2():
+    assert PROMPT_VERSION == "2"
+
+
+def test_schema_enum_is_the_entity_vocabulary():
+    entity = DIGEST_SCHEMA["properties"]["entities"]["items"]
+    assert entity["properties"]["type"]["enum"] == VOCABULARY
+    assert [t.value for t in EntityType] == VOCABULARY
+
+
+@pytest.mark.parametrize("kind", VOCABULARY)
+def test_every_vocabulary_type_parses(kind: str):
+    content = {**GOOD, "entities": [{"name": "X", "type": kind}]}
+    digest = parse_digest(reply(json.dumps(content)))
+    assert isinstance(digest, Digest)
+    assert digest.entities == (Entity(name="X", type=EntityType(kind)),)
+
+
+def test_system_prompt_defines_every_type_and_excludes_the_page_itself():
+    system = build_request(PAGE, PROVIDER).body["messages"][0]["content"]
+    for kind in VOCABULARY:
+        assert f"- {kind}:" in system
+    assert "never the page itself" in system

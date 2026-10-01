@@ -88,9 +88,7 @@ def focus_state_from_tree(tree: dict[str, Any]) -> DesktopState:
         workspace=(
             ancestor_name_of_type(tree, con_id, "workspace") if con_id is not None else None
         ),
-        output=(
-            ancestor_name_of_type(tree, con_id, "output") if con_id is not None else None
-        ),
+        output=(ancestor_name_of_type(tree, con_id, "output") if con_id is not None else None),
     )
 
 

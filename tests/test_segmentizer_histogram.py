@@ -25,9 +25,14 @@ def cross_seg(start_day: str, start: str, end_day: str, end: str, app="firefox",
     start_iso = f"{start_day}T{start}{OFFSET}"
     end_iso = f"{end_day}T{end}{OFFSET}"
     return make_event(
-        "sway", "focus_segment", ts=start_iso,
-        app_id=app, workspace=ws,
-        start_ts=start_iso, end_ts=end_iso, duration_s=0,
+        "sway",
+        "focus_segment",
+        ts=start_iso,
+        app_id=app,
+        workspace=ws,
+        start_ts=start_iso,
+        end_ts=end_iso,
+        duration_s=0,
     )
 
 
@@ -98,9 +103,15 @@ def seg_out(start: str, end: str, output: str, app: str = "firefox", ws: str = "
     start_iso = f"2026-05-19T{start}{OFFSET}"
     end_iso = f"2026-05-19T{end}{OFFSET}"
     return make_event(
-        "niri", "focus_segment", ts=start_iso,
-        app_id=app, workspace=ws, output=output,
-        start_ts=start_iso, end_ts=end_iso, duration_s=0,
+        "niri",
+        "focus_segment",
+        ts=start_iso,
+        app_id=app,
+        workspace=ws,
+        output=output,
+        start_ts=start_iso,
+        end_ts=end_iso,
+        duration_s=0,
     )
 
 

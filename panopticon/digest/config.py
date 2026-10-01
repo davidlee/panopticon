@@ -157,6 +157,6 @@ def _is_https_url(v: Any) -> bool:
 
 def _is_list_of(normalise: Callable[[str], str | None]) -> Callable[[Any], bool]:
     """A validator: a list of strings that each ``normalise``."""
-    return lambda v: isinstance(v, list) and all(
-        isinstance(e, str) and normalise(e) is not None for e in v
+    return lambda v: (
+        isinstance(v, list) and all(isinstance(e, str) and normalise(e) is not None for e in v)
     )

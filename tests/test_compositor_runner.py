@@ -191,8 +191,8 @@ async def test_run_watcher_emits_reconnect_after_failure(tmp_path):
     rows = _read_lines(tmp_path)
     assert [r["event"] for r in rows] == [
         "compositor_disconnected",  # initial connect failed
-        "compositor_reconnected",   # second attempt succeeded
-        "snapshot",                 # process_session ran
+        "compositor_reconnected",  # second attempt succeeded
+        "snapshot",  # process_session ran
         "compositor_disconnected",  # session ended (EOF)
     ]
     assert rows[0]["reason"] == "dropped"

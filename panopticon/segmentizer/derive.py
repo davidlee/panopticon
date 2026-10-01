@@ -109,9 +109,7 @@ def _segment(
     last_title: str | None = None,
 ) -> Event:
     producer, output, app_id, workspace = focus
-    duration = (
-        datetime.fromisoformat(end_ts) - datetime.fromisoformat(start_ts)
-    ).total_seconds()
+    duration = (datetime.fromisoformat(end_ts) - datetime.fromisoformat(start_ts)).total_seconds()
     fields: dict[str, object] = {
         "app_id": app_id,
         "workspace": workspace,

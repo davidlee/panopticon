@@ -16,6 +16,7 @@ import pytest
 
 from panopticon.digest.__main__ import main, run
 from panopticon.digest.client import PageRejected, ProviderUnavailable, TransportFailure
+from panopticon.digest.prompt import PROMPT_VERSION
 from panopticon.digest.store import StageStore
 from panopticon.fsutil import exclusive_lock
 from panopticon.ingest.content import ContentStore, content_dir
@@ -89,9 +90,7 @@ class Env:
     config: Path
     transport: FakeTransport
 
-    def run(
-        self, *, limit: int | None = None, dry_run: bool = False, key: str | None = KEY
-    ) -> int:
+    def run(self, *, limit: int | None = None, dry_run: bool = False, key: str | None = KEY) -> int:
         return run(
             self.root,
             self.config,
@@ -147,7 +146,11 @@ def test_run_digests_each_candidate_newest_first_and_records_it(env: Env):
     assert rec["title"] == "Title 2"
     assert rec["captured_at"] == (T0 + timedelta(minutes=2)).isoformat()
     assert rec["digested_at"] == T0.isoformat()
-    assert (rec["endpoint"], rec["model"], rec["prompt_version"]) == (ENDPOINT, "test/model", "1")
+    assert (rec["endpoint"], rec["model"], rec["prompt_version"]) == (
+        ENDPOINT,
+        "test/model",
+        PROMPT_VERSION,
+    )
     assert rec["input_truncated"] is False and rec["input_chars"] > 1500
     assert (rec["summary"], rec["claims"], rec["entities"]) == ("s", ["c"], [])
 
@@ -290,7 +293,7 @@ def test_content_failure_then_success_writes_the_marker(env: Env):
     assert (marker["endpoint"], marker["model"], marker["prompt_version"]) == (
         ENDPOINT,
         "test/model",
-        "1",
+        PROMPT_VERSION,
     )
     assert StageStore(env.root / "digest", "digest").done() >= {failed}
 

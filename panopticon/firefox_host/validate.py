@@ -74,11 +74,7 @@ def validate_and_redact(
     if event not in ALLOWED_EVENT_TYPES:
         raise ValidationError(f"unknown event type: {event!r}")
 
-    fields = {
-        k: v
-        for k, v in message.items()
-        if k not in ("event", "ts", "v", "source")
-    }
+    fields = {k: v for k, v in message.items() if k not in ("event", "ts", "v", "source")}
 
     if fields.get("incognito") is True:
         raise ValidationError("incognito event dropped at host")

@@ -141,10 +141,26 @@ def test_parse_candidates_empty() -> None:
 
 def test_shas_in_segment_returns_shas_for_matching_repo() -> None:
     lines = [
-        segment_line(repo="/a", slug="a", remote="", sha="111aaaa",
-                     subject="s", author="x", files_changed=1, ts="t"),
-        segment_line(repo="/b", slug="b", remote="", sha="222bbbb",
-                     subject="s", author="x", files_changed=1, ts="t"),
+        segment_line(
+            repo="/a",
+            slug="a",
+            remote="",
+            sha="111aaaa",
+            subject="s",
+            author="x",
+            files_changed=1,
+            ts="t",
+        ),
+        segment_line(
+            repo="/b",
+            slug="b",
+            remote="",
+            sha="222bbbb",
+            subject="s",
+            author="x",
+            files_changed=1,
+            ts="t",
+        ),
     ]
     assert shas_in_segment(lines, "/a") == {"111aaaa"}
     assert shas_in_segment(lines, "/b") == {"222bbbb"}
@@ -153,10 +169,26 @@ def test_shas_in_segment_returns_shas_for_matching_repo() -> None:
 def test_shas_in_segment_cross_repo_prefix_does_not_collide() -> None:
     # Same short sha in two different repos must stay scoped to its repo.
     lines = [
-        segment_line(repo="/a", slug="a", remote="", sha="abc1234",
-                     subject="s", author="x", files_changed=1, ts="t"),
-        segment_line(repo="/b", slug="b", remote="", sha="abc1234",
-                     subject="s", author="x", files_changed=1, ts="t"),
+        segment_line(
+            repo="/a",
+            slug="a",
+            remote="",
+            sha="abc1234",
+            subject="s",
+            author="x",
+            files_changed=1,
+            ts="t",
+        ),
+        segment_line(
+            repo="/b",
+            slug="b",
+            remote="",
+            sha="abc1234",
+            subject="s",
+            author="x",
+            files_changed=1,
+            ts="t",
+        ),
     ]
     assert shas_in_segment(lines, "/a") == {"abc1234"}
     # /c never wrote anything → empty, despite the shared prefix elsewhere.
@@ -167,7 +199,15 @@ def test_shas_in_segment_skips_malformed_lines() -> None:
     lines = [
         "not json at all",
         "",
-        segment_line(repo="/a", slug="a", remote="", sha="999zzzz",
-                     subject="s", author="x", files_changed=1, ts="t"),
+        segment_line(
+            repo="/a",
+            slug="a",
+            remote="",
+            sha="999zzzz",
+            subject="s",
+            author="x",
+            files_changed=1,
+            ts="t",
+        ),
     ]
     assert shas_in_segment(lines, "/a") == {"999zzzz"}

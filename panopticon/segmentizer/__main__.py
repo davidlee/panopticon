@@ -77,9 +77,7 @@ def run(root: Path, *, today: date) -> None:
                 close_at = events[-1].ts
             segs = list(derive(events, source=raw_prefix, close_at=close_at))
             seg_path = root / "segments" / f"{seg_prefix}-{day_str}.jsonl"
-            atomic_write_text(
-                seg_path, "".join(s.to_json_line() + "\n" for s in segs)
-            )
+            atomic_write_text(seg_path, "".join(s.to_json_line() + "\n" for s in segs))
             log.info("%s %s: %d segments", seg_prefix, day_str, len(segs))
             days_touched.add(day_str)
 
@@ -89,9 +87,7 @@ def run(root: Path, *, today: date) -> None:
         h = aggregate(focus_segs, day=day_str)
         h.update(aggregate_browser(browser_segs, day=day_str))
         hist_path = root / "histograms" / f"daily-{day_str}.json"
-        atomic_write_text(
-            hist_path, json.dumps(h, separators=(",", ":"), ensure_ascii=False)
-        )
+        atomic_write_text(hist_path, json.dumps(h, separators=(",", ":"), ensure_ascii=False))
         log.info("histogram %s", day_str)
 
     report = enforce(root, now=today)
@@ -118,7 +114,8 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         help="treat this date as today (YYYY-MM-DD); default: real today",
     )
     p.add_argument(
-        "-v", "--verbose",
+        "-v",
+        "--verbose",
         action="count",
         default=0,
         help="-v INFO, -vv DEBUG",

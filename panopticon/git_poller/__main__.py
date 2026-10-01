@@ -27,8 +27,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--dev-root",
         type=Path,
         default=Path.home() / "dev",
-        help="directory whose immediate children are scanned for git repos "
-        "(default: ~/dev)",
+        help="directory whose immediate children are scanned for git repos (default: ~/dev)",
     )
     parser.add_argument(
         "--state-dir",

@@ -44,7 +44,7 @@ firefox ext ──native msg──▶ firefox_host ──▶ ContentStore.store(
 - **Duplication.** `_atomic_write_text` is copied in `ingest/content.py` and
   `segmentizer/__main__.py`. `RawStore._write_current_file` is a third variant.
   The flock sequence is inline in `git_poller/poller.py`.
-- **Network code.** None in capture, except dead code:
+- **Network code.** None in capture, except dead code (deleted by D10):
   - `ingest/extractor.py` fetches URLs through trafilatura's `focused_crawler`.
   - It has no callers outside its own test.
   - Panopticon has no config file and no HTTP dependency.
@@ -341,9 +341,6 @@ It handles these cases:
 - **OQ-5: path-based rules.** Should the gate deny search-result paths
   (`google.com/search`) or apply a per-URL cooldown for listing pages? The
   design is domain-only; add either one only if dry-run data asks for it.
-- **OQ-6: delete `ingest/extractor.py`?** This needs the user's call. It is dead
-  network code with no callers outside its own test. Deleting it makes I2 true
-  for the whole package, rather than true with an exemption.
 
 ## 7. Decisions, Rationale & Alternatives
 
@@ -389,6 +386,13 @@ It handles these cases:
     no frontmatter parsing.
   - Cost: the model loses headings and list structure. Acceptable for a
     summary.
+
+- **D10: delete `ingest/extractor.py` and its test** (user, 2026-10-01;
+  formerly OQ-6).
+  - Why: it is dead network code. It fetches URLs through trafilatura's
+    `focused_crawler` and has no callers outside its own test.
+  - Effect: I2 holds over the whole package with no exemption, and capture is
+    network-free in the code as well as in practice.
 
 ## 8. Risks & Mitigations
 
@@ -448,7 +452,7 @@ It handles these cases:
     than `digest/client.py` imports a module on the I2 list.
   - It cannot see network calls made through permitted libraries such as
     `asyncio.open_connection`; it is a tripwire, not a proof.
-  - It depends on OQ-6: delete `extractor.py`, or exempt it by name.
+  - It holds with no exemptions once `extractor.py` is deleted (D10).
 - **D6 behaviour gate:** the content, store, segmentizer and git-poller suites
   stay green with no changes.
 - **VH (verified by a human):** one live run against OpenRouter on a handful of
@@ -482,8 +486,8 @@ findings were verified against the code, and all were accepted:
 - **Config:** unknown keys now fail; https only; empty-denylist warning.
 - **Client hygiene:** no redirects; explicit proxy handling; I5 (no
   page text or credentials in logs).
-- **Dead network code:** `extractor.py` → OQ-6; I2 widened to `ssl` and
-  trafilatura/courlan.
+- **Dead network code:** `extractor.py` → D10 (deleted); I2 widened to `ssl`
+  and trafilatura/courlan.
 - **I3 vs the lock:** config is now loaded before the lock.
 - **Index loss:** a crash between record and index lost rows → `reconcile_index`.
 - **D5 claim** corrected to "once per run".

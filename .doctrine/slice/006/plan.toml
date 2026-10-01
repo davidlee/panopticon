@@ -109,7 +109,7 @@ verification = [
   { id = "VT-1", expects = "parse_config accepts the design's example config; rejects an unknown key at each level, a literal api_key, a non-https endpoint, a missing model, bool or non-positive numerics, and a non-ASCII or non-normalisable deny/allow entry.", test_file = "tests/test_digest_config.py", keywords = ["parse_config", "api_key", "https", "bool"], patterns = ["def test_"], waived = false },
   { id = "VT-2", expects = "gate returns each reason in table order: bad_url (unparseable, non-ASCII host, empty label), bad_scheme (file, ftp), no_host, local_host (IPv4, IPv6, single-label, localhost, .local/.lan/.internal/.home.arpa, also when allow is set), denied_domain (trailing dot, mixed case; evilbank.com vs bank.com), not_allowed, low_quality, too_short; allow can never pass a denied host.", test_file = "tests/test_digest_gate.py", keywords = ["gate", "normalise_host", "local_host", "denied_domain", "not_allowed", "evilbank"], patterns = ["def test_"], waived = false },
   { id = "VT-3", expects = "Every DEFAULT_DENY entry is already normalised, and the defaults apply when the config omits deny.", test_file = "tests/test_digest_gate.py", keywords = ["DEFAULT_DENY"], patterns = ["def test_.*default"], waived = false },
-  { id = "VT-4", expects = "pending picks the latest SHA per URL across mixed offsets and Z suffixes; marks older rows superseded and done SHAs done; never falls back when the latest is gated or done; orders newest first.", test_file = "tests/test_digest_select.py", keywords = ["pending", "superseded", "done"], patterns = ["def test_"], waived = false },
+  { id = "VT-4", expects = "pending picks the latest SHA per URL across mixed offsets and Z suffixes; marks older rows superseded and done SHAs done; never falls back when the latest is gated or done; orders newest first.", test_file = "tests/test_digest_select.py", keywords = ["pending", "SUPERSEDED", "done"], patterns = ["def test_"], waived = false },
   { id = "VT-5", expects = "build_request carries only host, title and text (no URL path, query or userinfo in any message), truncates with input_truncated set, wraps the page in the delimiter, and sets the strict json_schema response_format and provider.require_parameters.", test_file = "tests/test_digest_prompt.py", keywords = ["build_request", "require_parameters", "json_schema", "input_truncated"], patterns = ["def test_"], waived = false },
   { id = "VT-6", expects = "parse_digest returns Digest on a valid reply and Failure for refusal, finish_reason=length (truncated), non-JSON content (not_json), schema mismatch (bad_shape), and an error object, missing choices or non-JSON 200 body (provider_error); it never raises.", test_file = "tests/test_digest_prompt.py", keywords = ["parse_digest", "refusal", "not_json", "bad_shape", "provider_error"], patterns = ["def test_"], waived = false },
 ]
@@ -196,6 +196,47 @@ verification = [
   { id = "VA-1", expects = "An agent reads the README and docs/privacy.md and confirms they match design I1, I2 and D11: capture is network-free; digest is the sole opt-in egress; only host, title and text are sent." },
   { id = "VA-2", expects = "A dry-run over the real store completes with no network access; the per-reason counts are recorded in notes.md as aggregates." },
   { id = "VH-1", expects = "The user runs panopticon-digest live on a small --limit and judges the records useful and well-formed (summary, claims, entities), and that the model honours strict json_schema under require_parameters." },
+]
+specs        = []
+requirements = []
+
+# ---------------------------------------------------------------------------
+[[phase]]
+id        = "PHASE-05"
+name      = "Audit remediation"
+objective = """
+Close the close-out review's findings before the timer is ever enabled.
+The finding ids (m1..m5, n1..n7) are the review's; audit.md records each one.
+
+- m1: refuse an API key with surrounding whitespace or control characters
+  (exit 2, naming the env var) so http.client never echoes it in a traceback.
+- m2: `pending` is total: a non-object row, or a title that is neither a
+  string nor null, is bad_row.
+- n4: a content_hash that is not 64 lowercase hex chars is bad_row in the
+  shell, where store paths are built.
+- n1: a non-finite quality_score is bad_row. n2: a non-finite Retry-After
+  is ignored.
+- n3: deny matching resolves `.`/`..` segments and drops `;` params; numeric
+  final labels (`127.1`, `0x7f.1`) count as IP literals (local_host);
+  twitter.com joins x.com in DEFAULT_DENY.
+- m4: digest.service runs with -v so the design's INFO rows reach the journal.
+- m3, m5, n5, n7: amend design.md to match the code (timeout is a backstop,
+  not a breaker bound; streaks count since the last success; dry-run logs a
+  missing content record; trailing content markers per run).
+"""
+entrance_criteria = [
+  { id = "EN-1", text = "PHASE-04 completed; close-out review findings received." },
+]
+exit_criteria = [
+  { id = "EX-1", text = "Each code finding (m1, m2, m4, n1-n4) has a test that failed first." },
+  { id = "EX-2", text = "design.md states m3, m5, n5 and n7 as built." },
+  { id = "EX-3", text = "`just check` green." },
+]
+verification = [
+  { id = "VT-1", expects = "A key with a trailing newline or control character exits 2 with no transport call and no key in the logs.", test_file = "tests/test_digest_main.py", keywords = ["control"], patterns = ["def test_.*key"], waived = false },
+  { id = "VT-2", expects = "pending marks non-object rows, non-string titles and NaN/inf quality as bad_row without raising.", test_file = "tests/test_digest_select.py", keywords = ["bad_row", "nan"], patterns = ["def test_"], waived = false },
+  { id = "VT-3", expects = "Dot segments, `;` params and numeric-final-label hosts cannot dodge deny or local_host.", test_file = "tests/test_digest_gate.py", keywords = ["..", ";", "0x7f"], patterns = ["def test_"], waived = false },
+  { id = "VT-4", expects = "A Retry-After of nan is ignored; a non-hex content_hash never reaches a store path.", test_file = "tests/test_digest_client.py", keywords = ["nan"], patterns = ["def test_"], waived = false },
 ]
 specs        = []
 requirements = []

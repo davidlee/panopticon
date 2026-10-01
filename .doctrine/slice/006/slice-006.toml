@@ -10,6 +10,96 @@ tags = []
 needs = []                      # slice→work hard prerequisite
 after = []                      # slice→work soft sequence: { to, rank }
 
+[[selector]]
+selector = "panopticon/digest/**"
+intent = "design-target"
+note = "design §5 surface: digest package, D3 settings, D6 fsutil dedup, D10 extractor removal, D15 amo move, units, docs"
+
+[[selector]]
+selector = "panopticon/fsutil.py"
+intent = "design-target"
+note = "design §5 surface: digest package, D3 settings, D6 fsutil dedup, D10 extractor removal, D15 amo move, units, docs"
+
+[[selector]]
+selector = "panopticon/settings.py"
+intent = "design-target"
+note = "design §5 surface: digest package, D3 settings, D6 fsutil dedup, D10 extractor removal, D15 amo move, units, docs"
+
+[[selector]]
+selector = "panopticon/ingest/**"
+intent = "design-target"
+note = "design §5 surface: digest package, D3 settings, D6 fsutil dedup, D10 extractor removal, D15 amo move, units, docs"
+
+[[selector]]
+selector = "panopticon/segmentizer/__main__.py"
+intent = "design-target"
+note = "design §5 surface: digest package, D3 settings, D6 fsutil dedup, D10 extractor removal, D15 amo move, units, docs"
+
+[[selector]]
+selector = "panopticon/git_poller/poller.py"
+intent = "design-target"
+note = "design §5 surface: digest package, D3 settings, D6 fsutil dedup, D10 extractor removal, D15 amo move, units, docs"
+
+[[selector]]
+selector = "panopticon/store.py"
+intent = "design-target"
+note = "design §5 surface: digest package, D3 settings, D6 fsutil dedup, D10 extractor removal, D15 amo move, units, docs"
+
+[[selector]]
+selector = "systemd/digest.*"
+intent = "design-target"
+note = "design §5 surface: digest package, D3 settings, D6 fsutil dedup, D10 extractor removal, D15 amo move, units, docs"
+
+[[selector]]
+selector = "docs/privacy.md"
+intent = "design-target"
+note = "design §5 surface: digest package, D3 settings, D6 fsutil dedup, D10 extractor removal, D15 amo move, units, docs"
+
+[[selector]]
+selector = "README.md"
+intent = "design-target"
+note = "design §5 surface: digest package, D3 settings, D6 fsutil dedup, D10 extractor removal, D15 amo move, units, docs"
+
+[[selector]]
+selector = "pyproject.toml"
+intent = "design-target"
+note = "design §5 surface: digest package, D3 settings, D6 fsutil dedup, D10 extractor removal, D15 amo move, units, docs"
+
+[[selector]]
+selector = "flake.nix"
+intent = "design-target"
+note = "design §5 surface: digest package, D3 settings, D6 fsutil dedup, D10 extractor removal, D15 amo move, units, docs"
+
+[[selector]]
+selector = "uv.lock"
+intent = "design-target"
+note = "design §5 surface: digest package, D3 settings, D6 fsutil dedup, D10 extractor removal, D15 amo move, units, docs"
+
+[[selector]]
+selector = "tools/**"
+intent = "design-target"
+note = "design §5 surface: digest package, D3 settings, D6 fsutil dedup, D10 extractor removal, D15 amo move, units, docs"
+
+[[selector]]
+selector = "tests/**"
+intent = "scope-relevant"
+note = "TDD suites + fixtures supporting the delivery"
+
+[[selector]]
+selector = "panopticon/amo.py"
+intent = "design-target"
+note = "D15 amo move (old path + Justfile recipe); D6 fourth atomic-write variant"
+
+[[selector]]
+selector = "Justfile"
+intent = "design-target"
+note = "D15 amo move (old path + Justfile recipe); D6 fourth atomic-write variant"
+
+[[selector]]
+selector = "panopticon/firefox_host/install.py"
+intent = "design-target"
+note = "D15 amo move (old path + Justfile recipe); D6 fourth atomic-write variant"
+
 [[relation]]
 label = "references"
 role = "concerns"

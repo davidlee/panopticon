@@ -417,9 +417,29 @@ every property as `required`:
 - **OQ-3:** `min_quality`. With `min_chars ≥ 500`, 0.7 means "at most one
   penalty" (no title, link-heavy, or short lines). Check 0.7 against 0.4 with
   `--dry-run` on the real corpus.
-- **OQ-4:** The contents of `DEFAULT_DENY`: generic categories only, none of
-  the user's own domains. **Settle in `/plan`** as a concrete list, then check
-  its coverage with `--dry-run`.
+- **OQ-4 (settled at plan, 2026-10-01; coverage still to be checked with
+  `--dry-run` in PHASE-04):** `DEFAULT_DENY` holds generic, widely used hosts by
+  category, none drawn from the user's history. Matching is by suffix, so
+  listing `google.com` covers its subdomains:
+  - **search / Google account surfaces:** `google.com`, `bing.com`,
+    `duckduckgo.com`, `kagi.com`, `search.brave.com`;
+  - **mail:** `outlook.live.com`, `outlook.office.com`, `outlook.office365.com`,
+    `proton.me`, `fastmail.com`, `mail.yahoo.com`, `icloud.com`;
+  - **chat:** `web.whatsapp.com`, `messenger.com`, `discord.com`, `slack.com`,
+    `teams.microsoft.com`, `teams.live.com`, `web.telegram.org`;
+  - **AI chat:** `chatgpt.com`, `chat.openai.com`, `claude.ai`,
+    `gemini.google.com`, `perplexity.ai`, `chat.mistral.ai`, `copilot.microsoft.com`;
+  - **office / files:** `office.com`, `sharepoint.com`, `onedrive.live.com`,
+    `live.com`, `notion.so`, `dropbox.com`, `box.com`;
+  - **auth / secrets:** `login.microsoftonline.com`, `appleid.apple.com`,
+    `okta.com`, `auth0.com`, `1password.com`, `bitwarden.com`;
+  - **payments / banking:** `paypal.com`, `stripe.com`, `wise.com`,
+    `commbank.com.au`, `anz.com.au`, `westpac.com.au`, `nab.com.au`;
+  - **government:** `my.gov.au`, `ato.gov.au`, `servicesaustralia.gov.au`.
+
+  Two consequences: `google.com` subsumes `gemini.google.com`, which is listed
+  anyway for clarity, and `live.com` subsumes the `outlook`/`onedrive`/`teams`
+  `live.com` entries. Both are deliberate.
 - **OQ-5:** Path rules or a per-URL cooldown. The design is domain-only; add
   either only if dry-run data asks for it.
 

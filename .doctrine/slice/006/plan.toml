@@ -1,0 +1,201 @@
+# Implementation plan for SL-006 — the authored, durable phase plan.
+#
+# This is the single source of each phase's objective, criteria, verification,
+# and links. Runtime status lives separately under .doctrine/state/ (phase
+# tracking) — never record progress here. Hand-edit freely: the tool reads this
+# file but does not rewrite it.
+schema  = "doctrine.plan.overview"
+version = 1
+slice   = "SL-006"
+
+[specs]                          # empty in v1 — no spec/requirement registry yet
+primary       = []
+collaborators = []
+
+[requirements]
+targets      = []
+dependencies = []
+
+# One [[phase]] per ordered phase. Ids are PHASE-NN (zero-padded), immutable and
+# never reused once authored — edits append, they never renumber. Criterion ids
+# are local to their phase, bare, and equally immutable (.doctrine/glossary.md §
+# reference forms): EN-1 entry, EX-1 exit, and verification by mode —
+# VT-1 test (automated), VA-1 agent check, VH-1 human acceptance.
+
+# ---------------------------------------------------------------------------
+[[phase]]
+id        = "PHASE-01"
+name      = "Groundwork: shared fsutil/settings, remove egress outliers, I2 tripwire"
+objective = """
+Make the package network-free and dedupe the helpers digest will need, before any
+digest code exists. Behaviour-preserving except for the two removals.
+
+- D6: new `panopticon/fsutil.py` with `atomic_write_text(path, text)` and
+  `@contextmanager exclusive_lock(path) -> Iterator[bool]` (non-blocking
+  `fcntl.flock(LOCK_EX|LOCK_NB)` on an `O_CREAT|O_CLOEXEC` file, yields whether
+  acquired). Migrate `ingest/content.py` and `segmentizer/__main__.py`
+  `_atomic_write_text`, `RawStore._write_current_file`, and the inline flock in
+  `git_poller/poller.py`. Existing suites stay green unchanged.
+- D3: new `panopticon/settings.py` with `config_dir()` (honours
+  `XDG_CONFIG_HOME`, else `~/.config`, plus `panopticon`) and `load_toml(path)`.
+- D10: delete `ingest/extractor.py` and `tests/test_ingest_extractor.py`; drop
+  trafilatura from `pyproject.toml`, both `flake.nix` lists and `uv.lock`
+  (re-lock); scrub the Trafilatura mentions in `ingest/__init__.py` and
+  `ingest/content.py` docstrings.
+- D15: move `panopticon/amo.py` to `tools/amo.py` (with `tools/__init__.py`);
+  the test imports `tools.amo`, pytest gains `pythonpath = ["."]`, and the
+  `fetch-extension` recipe runs `python -m tools.amo`.
+- I2 tripwire: an AST walk over `panopticon/**/*.py` that fails when any module
+  other than `panopticon/digest/client.py` imports `urllib.request`,
+  `http.client`, `ssl` or `socket`. No exemptions.
+"""
+entrance_criteria = [
+  { id = "EN-1", text = "Design SL-006 locked (3 adversarial rounds; D1–D15); slice status = plan." },
+  { id = "EN-2", text = "`just check` green on main before starting." },
+]
+exit_criteria = [
+  { id = "EX-1", text = "fsutil.atomic_write_text and fsutil.exclusive_lock exist; no other atomic-write or flock implementation remains in panopticon/ (grep finds only fsutil)." },
+  { id = "EX-2", text = "content, store, segmentizer and git-poller suites green with no test edits (the D6 behaviour-preservation gate)." },
+  { id = "EX-3", text = "extractor.py and its test gone; trafilatura absent from pyproject.toml, flake.nix and uv.lock; `nix build .#panopticon --no-link` succeeds." },
+  { id = "EX-4", text = "amo.py lives at tools/amo.py; its tests pass from the new path; `just fetch-extension` resolves the module (run with --help or no credentials: the import succeeds)." },
+  { id = "EX-5", text = "The I2 tripwire test passes over the whole package with no exemption list." },
+  { id = "EX-6", text = "`just check` green; lint zero warnings." },
+]
+verification = [
+  { id = "VT-1", expects = "atomic_write_text replaces the target atomically (no temp file left behind, content exact); exclusive_lock yields True when free and False while another fd holds a flock on the same path.", test_file = "tests/test_fsutil.py", keywords = ["atomic_write_text", "exclusive_lock"], patterns = ["def test_"], waived = false },
+  { id = "VT-2", expects = "config_dir honours XDG_CONFIG_HOME and falls back to ~/.config/panopticon; load_toml parses a file and raises on malformed TOML.", test_file = "tests/test_settings.py", keywords = ["config_dir", "load_toml", "XDG_CONFIG_HOME"], patterns = ["def test_"], waived = false },
+  { id = "VT-3", expects = "No module under panopticon/ except digest/client.py imports urllib.request, http.client, ssl or socket (AST walk, including `from x import y` forms).", test_file = "tests/test_network_boundary.py", keywords = ["ast", "urllib.request", "http.client", "socket", "digest/client.py"], patterns = ["def test_"], waived = false },
+  { id = "VT-4", expects = "The amo signing-status suite passes unchanged in substance, importing from tools.amo.", test_file = "tests/test_amo.py", keywords = ["tools.amo"], patterns = ["from tools.amo import"], waived = false },
+]
+specs        = []
+requirements = []
+
+# ---------------------------------------------------------------------------
+[[phase]]
+id        = "PHASE-02"
+name      = "Pure core: config, gate, selection, prompt"
+objective = """
+Build the pure layer of `panopticon/digest/`: no clock, disk or network.
+
+- `config.py`: `parse_config(dict) -> DigestConfig` (frozen dataclasses), strict
+  per design §5.2: unknown keys at any level fail, including a literal `api_key`;
+  https endpoint; required model; numeric fields reject bool and must be
+  positive; deny/allow entries go through normalise_host, and a non-ASCII or
+  bad entry is an error.
+- `gate.py`: `DEFAULT_DENY` (the design OQ-4 list), `normalise_host`, and
+  `gate(url, quality, length | None, cfg) -> Pass | Reject(reason)`, with
+  reasons and order exactly as the §5.2 table. Deny always applies, allow only
+  narrows (D4); label-boundary match; the host comes from the URL, never the
+  stored domain.
+- `select.py`: `pending(rows, done, cfg)`: latest row per URL by parsed aware
+  `captured_at`; the `superseded` and `done` reasons; no fallback to older SHAs;
+  newest first; it also returns per-row verdicts for dry-run.
+- `prompt.py`: `PROMPT_VERSION`, `DIGEST_SCHEMA` (strict: additionalProperties
+  false, all properties required), `build_request(page, cfg)` sending only host,
+  title and text_content truncated to max_input_chars inside a delimited data
+  block, with `require_parameters`; and a total `parse_digest(resp) -> Digest |
+  Failure(kind)` over refusal, truncated, not_json, bad_shape, provider_error
+  (including a non-JSON 200 body).
+"""
+entrance_criteria = [
+  { id = "EN-1", text = "PHASE-01 completed (settings.py exists; the tripwire is in place)." },
+]
+exit_criteria = [
+  { id = "EX-1", text = "All four modules exist under panopticon/digest/ with no import of os, pathlib I/O, time, datetime.now, random or any network module (pure)." },
+  { id = "EX-2", text = "Every gate reason, every config rejection and every parse_digest Failure kind in design §5.2 has a test." },
+  { id = "EX-3", text = "`just check` green." },
+]
+verification = [
+  { id = "VT-1", expects = "parse_config accepts the design's example config; rejects an unknown key at each level, a literal api_key, a non-https endpoint, a missing model, bool or non-positive numerics, and a non-ASCII or non-normalisable deny/allow entry.", test_file = "tests/test_digest_config.py", keywords = ["parse_config", "api_key", "https", "bool"], patterns = ["def test_"], waived = false },
+  { id = "VT-2", expects = "gate returns each reason in table order: bad_url (unparseable, non-ASCII host, empty label), bad_scheme (file, ftp), no_host, local_host (IPv4, IPv6, single-label, localhost, .local/.lan/.internal/.home.arpa, also when allow is set), denied_domain (trailing dot, mixed case; evilbank.com vs bank.com), not_allowed, low_quality, too_short; allow can never pass a denied host.", test_file = "tests/test_digest_gate.py", keywords = ["gate", "normalise_host", "local_host", "denied_domain", "not_allowed", "evilbank"], patterns = ["def test_"], waived = false },
+  { id = "VT-3", expects = "Every DEFAULT_DENY entry is already normalised, and the defaults apply when the config omits deny.", test_file = "tests/test_digest_gate.py", keywords = ["DEFAULT_DENY"], patterns = ["def test_.*default"], waived = false },
+  { id = "VT-4", expects = "pending picks the latest SHA per URL across mixed offsets and Z suffixes; marks older rows superseded and done SHAs done; never falls back when the latest is gated or done; orders newest first.", test_file = "tests/test_digest_select.py", keywords = ["pending", "superseded", "done"], patterns = ["def test_"], waived = false },
+  { id = "VT-5", expects = "build_request carries only host, title and text (no URL path, query or userinfo in any message), truncates with input_truncated set, wraps the page in the delimiter, and sets the strict json_schema response_format and provider.require_parameters.", test_file = "tests/test_digest_prompt.py", keywords = ["build_request", "require_parameters", "json_schema", "input_truncated"], patterns = ["def test_"], waived = false },
+  { id = "VT-6", expects = "parse_digest returns Digest on a valid reply and Failure for refusal, finish_reason=length (truncated), non-JSON content (not_json), schema mismatch (bad_shape), and an error object, missing choices or non-JSON 200 body (provider_error); it never raises.", test_file = "tests/test_digest_prompt.py", keywords = ["parse_digest", "refusal", "not_json", "bad_shape", "provider_error"], patterns = ["def test_"], waived = false },
+]
+specs        = []
+requirements = []
+
+# ---------------------------------------------------------------------------
+[[phase]]
+id        = "PHASE-03"
+name      = "Impure shell: client, store, run, CLI, units"
+objective = """
+Wire the pure core to disk, network and the CLI.
+
+- `client.py`: the fixed opener `build_opener(NoRedirect(), ProxyHandler({}),
+  HTTPSHandler(context=ssl.create_default_context()))`; a 60 s timeout; the
+  ordered failure-classification table (design §5.2); bounded retry (4 attempts,
+  exponential with jitter, Retry-After capped at 60 s); raises
+  ProviderUnavailable / PageRejected / TransportFailure; logs SHA, status and
+  kind only. Sleep and clock are injected for tests.
+- `store.py`: `StageStore(root, stage)` with `done()` (glob of records and fail
+  markers), `put(record)` and `put_failure(marker)`, all via
+  fsutil.atomic_write_text; sharded `<sha[:2]>/<sha>.<stage>[.fail].json`.
+- `__main__.py`: `run()` with injected transport, following the design §5.1
+  sequence and §5.2 exit-code table: config before the lock; dry-run ignores
+  enabled and the key; lazy walk to `limit`; hold-and-flush fail markers (D14);
+  breakers (5 consecutive content failures, 3 consecutive transport or
+  provider_error, immediate on ProviderUnavailable).
+- Console script `panopticon-digest` in `[project.scripts]`; `systemd/digest.service`
+  (oneshot, `EnvironmentFile=-%h/.config/panopticon/digest.env`,
+  `TimeoutStartSec=2h`) and `systemd/digest.timer` (daily, Persistent), both
+  shipped, not enabled.
+"""
+entrance_criteria = [
+  { id = "EN-1", text = "PHASE-02 completed." },
+]
+exit_criteria = [
+  { id = "EX-1", text = "Invariants I1, I3, I4 and I5 each have a run-level test; I2 still passes (client.py is the only network importer)." },
+  { id = "EX-2", text = "Every exit-code row in design §5.2 has a test." },
+  { id = "EX-3", text = "No test touches the real network: the client is tested against a local http.server fixture, the run against a fake transport." },
+  { id = "EX-4", text = "`nix build .#panopticon --no-link` produces bin/panopticon-digest; `just check` green." },
+]
+verification = [
+  { id = "VT-1", expects = "client: each classification-table row (3xx, 401, 402 fatal; 400, 403, 404, 413, 422 PageRejected; 408, 429, 5xx retried; certificate failure fatal; other URLError, raw ConnectionResetError, TimeoutError and HTTPException retried); 401 vs URLError ordering; a large Retry-After capped; a 302 never contacts the target; a bogus HTTP_PROXY with no_proxy cleared still connects direct.", test_file = "tests/test_digest_client.py", keywords = ["post_json", "ProviderUnavailable", "PageRejected", "TransportFailure", "Retry-After", "HTTP_PROXY"], patterns = ["def test_"], waived = false },
+  { id = "VT-2", expects = "StageStore round-trips a record; a fail marker counts as done and carries endpoint; re-running put on a done SHA is never reached by run (I4).", test_file = "tests/test_digest_store.py", keywords = ["StageStore", "done", "put_failure", "endpoint"], patterns = ["def test_"], waived = false },
+  { id = "VT-3", expects = "run: no config, or enabled=false, means no lock file, no calls, no writes (I3); dry-run with enabled=false and no key prints verdicts with no calls or writes; a gated page never reaches the transport (I1); the lazy walk stops at limit; a lock held exits 0.", test_file = "tests/test_digest_main.py", keywords = ["run", "dry_run", "enabled", "limit"], patterns = ["def test_"], waived = false },
+  { id = "VT-4", expects = "run, failure handling (D13/D14): a content failure then a success writes the marker; content failures with no success write none; 5 consecutive content failures abort (exit 1) with no markers; PageRejected is a content failure; ProviderUnavailable aborts immediately; 3 consecutive transport failures abort; transport failures never write markers.", test_file = "tests/test_digest_main.py", keywords = ["ProviderUnavailable", "PageRejected", "TransportFailure", "fail"], patterns = ["def test_.*(fail|abort|breaker|marker)"], waived = false },
+  { id = "VT-5", expects = "I5: across a failing and a succeeding run, caplog contains no page text, no request body and no API key.", test_file = "tests/test_digest_main.py", keywords = ["caplog"], patterns = ["def test_.*log"], waived = false },
+  { id = "VT-6", expects = "Each exit-code row of design §5.2: no config 0; malformed config 2 (also with --dry-run); disabled 0; key missing 2; lock held 0; completed 0; breaker 1.", test_file = "tests/test_digest_main.py", keywords = ["main", "exit"], patterns = ["def test_.*exit"], waived = false },
+]
+specs        = []
+requirements = []
+
+# ---------------------------------------------------------------------------
+[[phase]]
+id        = "PHASE-04"
+name      = "Docs, corpus dry-run, live acceptance"
+objective = """
+Make the egress honest in the docs and validate against reality.
+
+- README: replace "Nothing leaves the machine" (line 11) and "No network calls"
+  (line 119) with the DEC-002 statement; add the binary-table row, the config
+  example, how to enable (config + env file + timer, noting the fixed
+  ~/.config env-file path), and that digests are untrusted derived text.
+- docs/privacy.md: an egress section stating that capture never touches the
+  network, that panopticon-digest is the sole opt-in egress, and exactly what
+  leaves the host (host, title, truncated text_content; I1).
+- Run `panopticon-digest --dry-run` against the real store. Settle OQ-3
+  (min_quality 0.7 vs 0.4), OQ-2 (max_input_chars) and OQ-5 (path rules or
+  cooldown, only if the data demands), and check DEFAULT_DENY coverage (OQ-4).
+  Record outcomes in notes.md as aggregates only; no URLs or titles.
+- Live acceptance (OQ-1): with a user-chosen OpenRouter model, digest a handful
+  of pages and inspect the records.
+"""
+entrance_criteria = [
+  { id = "EN-1", text = "PHASE-03 completed." },
+  { id = "EN-2", text = "The user has chosen an OpenRouter model and provided OPENROUTER_API_KEY (for VH-1 only)." },
+]
+exit_criteria = [
+  { id = "EX-1", text = "README and docs/privacy.md state the DEC-002 egress and exactly what leaves the host; no remaining claim that panopticon makes no network calls at all." },
+  { id = "EX-2", text = "OQ-2, OQ-3, OQ-4 and OQ-5 each have a recorded outcome in notes.md (aggregates only); any default changed accordingly with tests updated." },
+  { id = "EX-3", text = "`just check` green." },
+]
+verification = [
+  { id = "VA-1", expects = "An agent reads the README and docs/privacy.md and confirms they match design I1, I2 and D11: capture is network-free; digest is the sole opt-in egress; only host, title and text are sent." },
+  { id = "VA-2", expects = "A dry-run over the real store completes with no network access; the per-reason counts are recorded in notes.md as aggregates." },
+  { id = "VH-1", expects = "The user runs panopticon-digest live on a small --limit and judges the records useful and well-formed (summary, claims, entities), and that the model honours strict json_schema under require_parameters." },
+]
+specs        = []
+requirements = []

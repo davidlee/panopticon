@@ -33,7 +33,7 @@ PAGE = Page(host="www.example.org", title="A Title", text="Body text about thing
 # build_request -------------------------------------------------------------
 
 
-def test_request_carries_model_limits_schema_and_require_parameters():
+def test_request_carries_model_limits_schema_and_pinned_routing():
     body = build_request(PAGE, PROVIDER).body
     assert body["model"] == "vendor/model"
     assert body["max_tokens"] == 777
@@ -41,7 +41,7 @@ def test_request_carries_model_limits_schema_and_require_parameters():
         "type": "json_schema",
         "json_schema": {"name": "page_digest", "strict": True, "schema": DIGEST_SCHEMA},
     }
-    assert body["provider"] == {"require_parameters": True}
+    assert body["provider"] == {"require_parameters": True, "allow_fallbacks": False}
     assert [m["role"] for m in body["messages"]] == ["system", "user"]
     assert set(body) == {"model", "max_tokens", "messages", "response_format", "provider"}
 

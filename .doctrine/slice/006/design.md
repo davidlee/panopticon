@@ -258,8 +258,12 @@ The URL path, query, userinfo and body links never leave the host (D9, D11).
                 {"role": "user",   "content": "<host, title, then text_content inside a delimited block>"} ],
   "response_format": { "type": "json_schema",
                        "json_schema": { "name": "page_digest", "strict": true, "schema": DIGEST_SCHEMA } },
-  "provider": { "require_parameters": true } }
+  "provider": { "require_parameters": true, "allow_fallbacks": false } }
 ```
+
+`allow_fallbacks: false` (user, 2026-10-01) stops OpenRouter routing a page
+to a second provider when the first fails. The page reaches at most one
+provider, and a failure surfaces as an error, which the breakers handle.
 
 `DIGEST_SCHEMA` sets `additionalProperties: false` on every object and lists
 every property as `required`:

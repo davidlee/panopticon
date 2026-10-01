@@ -110,7 +110,7 @@ def build_request(page: Page, cfg: ProviderConfig) -> Request:
             "type": "json_schema",
             "json_schema": {"name": "page_digest", "strict": True, "schema": DIGEST_SCHEMA},
         },
-        "provider": {"require_parameters": True},
+        "provider": {"require_parameters": True, "allow_fallbacks": False},
     }
     return Request(body, input_chars=len(text), input_truncated=len(text) < len(page.text))
 

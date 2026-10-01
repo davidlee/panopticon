@@ -1,2 +1,5 @@
 export JAIL_WORKSPACE_DEPS="" # ...
 use flake . --impure
+# AMO signing credentials for `just sign-extension`
+export WEB_EXT_API_KEY="" # JWT issuer
+export WEB_EXT_API_SECRET="" # JWT secret

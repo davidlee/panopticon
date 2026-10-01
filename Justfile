@@ -1,7 +1,6 @@
 # Justfile — panopticon dev tasks. Run `just` to list.
 
 ext := "firefox-extension"
-zip := "panopticon.zip"
 
 check: lint test
 
@@ -17,17 +16,15 @@ test:
 lint:
     uv run --extra dev ruff check .
 
-# Package the Firefox extension into panopticon.zip for upload (AMO) / signing.
-# manifest.json must sit at the archive root, so we zip from inside the
-# extension dir. Dotfiles (.DS_Store, editor swap files) are excluded.
-package-extension:
-    test -f {{ext}}/manifest.json
-    rm -f {{zip}}
-    cd {{ext}} && zip -r -X -q ../{{zip}} . -x '.*' '*/.*'
-    @echo "built {{zip}}:"
-    unzip -l {{zip}}
+# Needs WEB_EXT_API_KEY and WEB_EXT_API_SECRET (JWT issuer/secret from
+# https://addons.mozilla.org/developers/addon/api/key/). Bump the manifest
+# version first: AMO rejects a version it has already seen.
+# Sign the extension via the AMO API (unlisted) → web-ext-artifacts/*.xpi.
+sign-extension:
+    @test -n "${WEB_EXT_API_KEY:-}" -a -n "${WEB_EXT_API_SECRET:-}" || { echo "set WEB_EXT_API_KEY and WEB_EXT_API_SECRET" >&2; exit 1; }
+    web-ext sign --source-dir {{ext}} --channel unlisted
 
 install-manifest:
     panopticon-firefox-host install-manifest
 
-alias package := package-extension
+alias sign := sign-extension

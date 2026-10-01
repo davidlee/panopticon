@@ -63,7 +63,8 @@ Vocabulary (user, 2026-10-02):
   page names; never the page itself."
 - `Entity.type: EntityType`. `_is_entity` additionally requires the type to
   be a vocabulary value; otherwise the reply is `bad_shape` (D3).
-- `PROMPT_VERSION = "2"`. Records serialise the type as its string value.
+- `PROMPT_VERSION = "2"`, then `"3"` with D5. Records serialise the type as
+  its string value.
 
 ### 5.3 Data, State & Ownership
 
@@ -96,6 +97,15 @@ None.
   that ignores the enum. The SL-006 breakers already stop a run whose model
   fails every page before any marker is written.
 - **D4: no re-digest machinery.** Delete the 3 records by hand (user).
+- **D5: dial back over-extraction by guidance, not enforcement** (user,
+  2026-10-02, after VH-1 on prompt v2 listed up to 23 entities per page,
+  including keybindings, file names and aliases). The prompt asks for at most
+  `ENTITY_LIMIT` (10) of the most significant entities, skips commands,
+  keybindings, file names, config keys and the hosting site, and lists each
+  entity once under its most common name. `PROMPT_VERSION` 3. The parser
+  does not enforce the cap: a small model's overrun must not become a failed
+  page. Rejected: `maxItems` in the schema (same failure mode, and provider
+  support for it under strict mode is uneven).
 
 ## 8. Risks & Mitigations
 

@@ -42,3 +42,29 @@ verification = [
 ]
 specs        = []
 requirements = []
+
+[[phase]]
+id        = "PHASE-02"
+name      = "Dial back entity over-extraction; prompt v3"
+objective = """
+VH-1 on prompt v2 showed the model listing nearly every token (keybindings,
+file names, aliases as separate entities; up to 23 per page). Guidance only,
+no parser enforcement (D5):
+- ask for at most ENTITY_LIMIT (10) of the most significant entities;
+- skip commands, keybindings, file names, config keys and the site hosting
+  the page;
+- list each entity once, under its most common name.
+`PROMPT_VERSION = "3"`. Re-digest the same 3 records and compare.
+"""
+entrance_criteria = [
+  { id = "EN-1", text = "PHASE-01 VT green; user chose to fix over-extraction now (2026-10-02)." },
+]
+exit_criteria = [
+  { id = "EX-1", text = "`just check` green; design D5 recorded." },
+]
+verification = [
+  { id = "VT-1", expects = "The system prompt states the ENTITY_LIMIT cap, the skip list and the once-per-entity rule; PROMPT_VERSION is 3; the parser still accepts more than ENTITY_LIMIT entities.", test_file = "tests/test_digest_prompt.py", keywords = ["ENTITY_LIMIT", "keybindings", "PROMPT_VERSION"], patterns = ["def test_"], waived = false },
+  { id = "VH-1", expects = "The 3 re-digested records carry prompt_version 3 with visibly fewer, more significant entities; the user judges them sensible." },
+]
+specs        = []
+requirements = []

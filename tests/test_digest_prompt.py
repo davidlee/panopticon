@@ -13,6 +13,7 @@ from panopticon.digest.prompt import (
     PROMPT_VERSION,
     Digest,
     Entity,
+    ENTITY_LIMIT,
     EntityType,
     Failure,
     FailureKind,
@@ -207,8 +208,8 @@ VOCABULARY = [
 ]  # fmt: skip
 
 
-def test_prompt_version_is_2():
-    assert PROMPT_VERSION == "2"
+def test_prompt_version_is_3():
+    assert PROMPT_VERSION == "3"
 
 
 def test_schema_enum_is_the_entity_vocabulary():
@@ -230,3 +231,16 @@ def test_system_prompt_defines_every_type_and_excludes_the_page_itself():
     for kind in VOCABULARY:
         assert f"- {kind}:" in system
     assert "never the page itself" in system
+
+
+def test_system_prompt_dials_back_extraction():
+    system = build_request(PAGE, PROVIDER).body["messages"][0]["content"]
+    assert f"at most {ENTITY_LIMIT}" in system
+    assert "keybindings" in system and "file names" in system
+    assert "once, under its most common name" in system
+
+
+def test_the_entity_limit_is_guidance_so_longer_lists_still_parse():
+    many = [{"name": f"E{i}", "type": "concept"} for i in range(ENTITY_LIMIT + 5)]
+    digest = parse_digest(reply(json.dumps({**GOOD, "entities": many})))
+    assert isinstance(digest, Digest) and len(digest.entities) == ENTITY_LIMIT + 5

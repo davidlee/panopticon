@@ -20,3 +20,18 @@ disposable phase sheet (`.doctrine/state/.../phase-NN.md`) that must survive
   (899b6b8). Left unedited.
 - Model choice (OQ-1) is pending web-agent research on providers; only PHASE-04
   needs it.
+
+## PHASE-01 groundwork (2026-10-01)
+
+- `panopticon/fsutil.py` is the single atomic-write / flock implementation.
+  Four atomic-write copies migrated, not three: `firefox_host/install.py` was
+  missed by design §2. `exclusive_lock` does not mkdir; callers own directories.
+- `panopticon/settings.py`: `config_dir()`, `load_toml()`. `load_toml` raises
+  `OSError` / `TOMLDecodeError`; the digest shell decides "no config → exit 0"
+  by checking existence first.
+- `tools/amo.py` (dev tool, outside the wheel); pytest `pythonpath = ["."]`.
+- I2 tripwire: `tests/test_network_boundary.py`. It whitelists
+  `panopticon/digest/client.py` by path; third-party libraries are not covered
+  (trafilatura would have evaded it — removed anyway).
+- `uv lock` works in the jail. The repo is not ruff-formatted and `just check`
+  has no format gate; format new files only.

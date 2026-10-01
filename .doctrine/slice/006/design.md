@@ -51,7 +51,7 @@ firefox ext ──native msg──▶ firefox_host ──▶ ContentStore.store(
 - **One dev-tool egress.** `panopticon/amo.py` imports `urllib.request` and calls
   addons.mozilla.org to check extension signing. `just fetch-extension` runs it.
   It is a developer tool, not a runtime binary, but it ships inside the package
-  today (OQ-6).
+  today. D15 moves it out.
 - **No config, no HTTP dependency.** Panopticon has no config file and no HTTP
   dependency. The README says "Nothing leaves the machine" (line 11) and "No
   network calls" (line 119).
@@ -395,8 +395,8 @@ every property as `required`:
 
 - **I1:** Nothing is sent for a page whose verdict is not `Pass`. For a page
   that passes, only the host, title and truncated `text_content` are sent.
-- **I2:** Only `panopticon/digest/client.py` imports `urllib.request`,
-  `http.client`, `ssl` or `socket` (subject to OQ-6, `amo.py`).
+- **I2:** Within the `panopticon` package, only `panopticon/digest/client.py`
+  imports `urllib.request`, `http.client`, `ssl` or `socket` (D10, D15).
 - **I3:** Without `enabled = true`, a non-dry run makes no network call and
   writes nothing, not even the lock file. A dry run never makes a network call
   and never writes.
@@ -420,13 +420,6 @@ every property as `required`:
 - **OQ-4:** The contents of `DEFAULT_DENY`: generic categories only, none of
   the user's own domains. **Settle in `/plan`** as a concrete list, then check
   its coverage with `--dry-run`.
-- **OQ-6 (needs the user's call; blocks lock):** `panopticon/amo.py` is a second
-  egress, a dev tool that queries AMO signing status. Options:
-  - **(a)** Move it and `tests/test_amo.py` out of the shipped package (for
-    example to `tools/amo.py`), and update the `Justfile` recipe. I2 then
-    holds with no exemption.
-  - **(b)** Keep it as the one named exemption, and scope DEC-002's "sole
-    egress" wording to runtime binaries.
 - **OQ-5:** Path rules or a per-URL cooldown. The design is domain-only; add
   either only if dry-run data asks for it.
 
@@ -491,7 +484,7 @@ config change applies retroactively.
   and from both `flake.nix` lists.
 - `uv.lock` is re-locked. The `content.py`/`ingest/__init__.py` docstrings drop
   their Trafilatura mentions. lxml and markdownify stay as dependencies.
-- I2 then holds over the capture code. `amo.py` is OQ-6.
+- With D15, I2 then holds over the whole package.
 
 **D11: Send the host, not the URL.**
 - Stored paths can carry secrets: share links, token pages, OAuth flows. The
@@ -509,6 +502,18 @@ config change applies retroactively.
 - A deterministic failure would otherwise abort every run at the same place
   and stall the backfill. This now includes page-specific 400/403 responses
   (`PageRejected`).
+
+**D15: Move `panopticon/amo.py` out of the shipped package** (user,
+2026-10-01; formerly OQ-6).
+- It moves to `tools/amo.py`, its test follows, and the `Justfile` recipe
+  `fetch-extension` runs the new path (`uv run python tools/amo.py …`).
+  `tests/test_amo.py` imports `panopticon.amo`, so the plan must pick how the
+  test reaches `tools/` (a `pythonpath` entry in pytest config, or moving the
+  test beside the tool).
+- Effect: the shipped package has exactly one network module, so the I2
+  tripwire needs no exemption and the README/DEC-002 "sole egress" statement
+  is literally true. Dev tooling outside the package is not part of the
+  runtime invariant.
 
 **D14: Fail markers are written only in a run that proved the provider
 healthy.**
@@ -618,8 +623,7 @@ and no key in the logs.
 **I2 tripwire:**
 - An AST walk over `panopticon/**.py` checks the I2 module list.
 - It is a tripwire, not a proof: `asyncio.open_connection` would evade it.
-- With D10, its exemptions depend on OQ-6: none under (a), or `amo.py` by name
-  under (b).
+- With D10 and D15 it needs no exemptions.
 
 **D6 behaviour gate:** the content, store, segmentizer and git-poller suites
 stay green unchanged.
@@ -682,7 +686,8 @@ All 17 findings were verified and accepted:
 
 **Round 3** (2026-10-01, a fresh adversarial subagent; it read the live index
 and reported aggregates only). All 13 findings were verified:
-- **Blocker:** `amo.py` is a second egress → OQ-6, the user's call.
+- **Blocker:** `amo.py` is a second egress → OQ-6 → D15: the user chose to
+  move it out of the package.
 - **Major:**
   - moderation-403 and page-specific 400 would abort every run at the same
     page → `PageRejected` is a content failure;

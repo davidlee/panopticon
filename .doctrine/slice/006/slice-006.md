@@ -56,6 +56,8 @@ Plus:
   content store (no index until a consumer needs one; design D12).
 - Delete the dead network extractor `ingest/extractor.py` and the trafilatura
   dependency (design D10).
+- Move the AMO signing dev tool `panopticon/amo.py` out of the package to
+  `tools/` (design D15).
 - Config + secrets loading; providers and models are config; the provider
   allowlist is the user's.
 - systemd service + timer, shipped **disabled**.

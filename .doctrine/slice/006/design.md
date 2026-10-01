@@ -48,8 +48,21 @@ firefox ext ──native msg──▶ firefox_host ──▶ ContentStore.store(
 - **Network code.** Capture has none, apart from dead code that D10 deletes:
   `ingest/extractor.py` fetches URLs through trafilatura's `focused_crawler`, has
   no callers outside its own test, and is trafilatura's only importer.
+- **One dev-tool egress.** `panopticon/amo.py` imports `urllib.request` and calls
+  addons.mozilla.org to check extension signing. `just fetch-extension` runs it.
+  It is a developer tool, not a runtime binary, but it ships inside the package
+  today (OQ-6).
 - **No config, no HTTP dependency.** Panopticon has no config file and no HTTP
-  dependency. The README says "No network calls" (lines 11 and 119).
+  dependency. The README says "Nothing leaves the machine" (line 11) and "No
+  network calls" (line 119).
+- **Corpus** (live index, 2026-10-01):
+  - 2,456 rows, 2,072 distinct URLs; 98 URLs have more than one SHA.
+  - Every `captured_at` carries a timezone (36 end in `Z`).
+  - Latest-per-URL rows that pass the default thresholds: about 1,638. That is
+    the real backfill.
+  - Rejections: `too_short` 561, `low_quality` 106, `local_host` 32.
+  - 234 pages exceed 24k chars.
+  - Every host is ASCII, because Firefox serialises hosts as punycode.
 - **Units.** The systemd user units are wired by the user's home-manager config,
   outside this repo. The repo ships the unit files, and the flake builds every
   `[project.scripts]` entry.
@@ -65,8 +78,9 @@ firefox ext ──native msg──▶ firefox_host ──▶ ContentStore.store(
   clock, network or disk.
 - **No new dependencies** (D2). Stdlib `urllib`, `ssl`, `tomllib` and `json`
   only; D10 removes one dependency (trafilatura).
-- **Volume is tiny**: about 13 pages/day after the gate. The backfill
-  (about 2.4k pages) is the only bulk case.
+- **Volume is tiny**: about 13 pages/day after the gate. The backfill (about
+  1.6k pages) is the only bulk case. At a limit of 50 and a median of 18
+  captures/day, it drains in about 45 days without starving new pages.
 
 ## 4. Guiding Principles
 
@@ -75,7 +89,9 @@ firefox ext ──native msg──▶ firefox_host ──▶ ContentStore.store(
 - **Key everything by content SHA.** Unchanged pages are never re-sent.
 - **Text in, text out.** No agent, no harness, no provider SDK.
 - **Fail closed.** An unparseable URL, an unknown config key, a missing host or
-  an un-encodable host is a rejection or an error, never a pass.
+  a non-ASCII host is a rejection or an error, never a pass.
+- **Mark only what's proven.** A page is marked failed only in a run that
+  proved the provider healthy (D14).
 - **Send the minimum.** Only the host, title and body text leave the machine;
   the URL path never does.
 - **Write less code.** Add an index, an option or a record kind only when
@@ -97,8 +113,10 @@ content index ─▶ │ pending(index, done, cfg)  (pure) ─▶ ordered rows, 
                  │   build_request(page, cfg)                              (pure) │
                  │   client.post_json(...)   ◀── the only egress (client.py)      │
                  │   parse_digest(response) ─▶ Digest | Failure            (pure) │
-                 │   store record (.digest.json) or failure (.digest.fail.json)   │
-                 │   transport/provider failure → breaker                         │
+                 │   success → record (.digest.json); flush held fail markers     │
+                 │   content failure → hold a fail marker (written on flush)      │
+                 │   transport/provider failure → breaker; no marker              │
+                 │ end: flush held markers iff the run had ≥1 success             │
                  └────────────────────────────────────────────────────────────────┘
 ```
 
@@ -133,7 +151,7 @@ panopticon-digest [--root PATH] [--config PATH] [--limit N] [--dry-run] [-v|-vv]
 
 | situation                                         | behaviour                                   | exit |
 |---------------------------------------------------|---------------------------------------------|------|
-| no config file                                    | log one line, touch nothing                 | 0    |
+| no config file (also with `--dry-run`)            | log one line, touch nothing                 | 0    |
 | malformed config (also with `--dry-run`)          | log the error                               | 2    |
 | `enabled = false`, no `--dry-run`                 | log one line, touch nothing                 | 0    |
 | API key env var unset, no `--dry-run`             | log the variable name                       | 2    |
@@ -142,9 +160,12 @@ panopticon-digest [--root PATH] [--config PATH] [--limit N] [--dry-run] [-v|-vv]
 | breaker trips (§5.4)                              | log the cause                               | 1    |
 
 - **`--dry-run`** needs a valid config but ignores `enabled` and the API key, so
-  the user can dry-run before enabling. It prints every row's verdict, and the
-  host, title and input size of each would-be candidate. It makes no network
-  call, writes nothing and takes no lock.
+  the user can dry-run before enabling.
+  - It prints every row's verdict (including `superseded` and `done`), plus
+    the host, title and input size of each would-be candidate.
+  - Unlike the lazy walk, it reads every row's `.json`, so `too_short` is
+    reported for all rows.
+  - It makes no network call, writes nothing and takes no lock.
 - **`--limit N`** overrides `max_pages_per_run`. The backfill is a manual run
   with a large limit.
 
@@ -171,21 +192,25 @@ max_output_tokens = 1500
 - **Strict parsing.** An unknown key at any level is an error, so a typo cannot
   silently drop the denylist; a literal `api_key` field is refused by the same
   rule. `endpoint` must be `https`, and `model` is required.
+- **Typed fields.** Numeric fields reject `bool`, because `tomllib` yields
+  `True` and `bool` is a subclass of `int`. They must be positive.
 - **Domain normalisation.** Every `deny` and `allow` entry goes through
-  `normalise_host`; an entry that does not normalise is a config error.
+  `normalise_host`. An entry that does not normalise, including any non-ASCII
+  entry, is a config error.
 - **Secrets.** Keys come only from the env var named by `api_key_env`. The unit
   supplies it with `EnvironmentFile=`.
 - **Allow narrows, never widens (D4).** `deny` (`DEFAULT_DENY` plus the user's
   entries) and the local-host rules always apply. `allow` can only remove hosts
   from what deny lets through. No setting turns a deny entry into a send.
 
-**Gate**: `gate(url, title, quality, length | None, cfg) -> Pass | Reject(reason)`.
+**Gate**: `gate(url, quality, length | None, cfg) -> Pass | Reject(reason)`.
 Reasons form an enum, so tests and dry-run output are stable. Rules are
-evaluated in table order:
+evaluated in table order. `pending` adds the two reasons that need the store:
+`superseded` (a newer SHA exists for the URL) and `done`.
 
 | reason          | rule                                                                      |
 |-----------------|---------------------------------------------------------------------------|
-| `bad_url`       | URL does not parse, or its host does not normalise (IDNA error)           |
+| `bad_url`       | URL does not parse, or its host does not normalise (non-ASCII, empty label) |
 | `bad_scheme`    | scheme is not `http`/`https` (rejects `file`, `ftp`)                      |
 | `no_host`       | URL has no hostname                                                       |
 | `local_host`    | IP literal (v4/v6); single-label host (no dot); `localhost`; `*.local`, `*.lan`, `*.internal`, `*.home.arpa` |
@@ -196,8 +221,13 @@ evaluated in table order:
 
 - **Host source.** The host is always derived from the row's URL, never from
   the stored `domain` field.
-- **`normalise_host`** lowercases, strips one trailing dot, and IDNA-encodes.
-  It returns `None` on failure, which means `bad_url`.
+- **`normalise_host`** lowercases, strips one trailing dot, and requires ASCII
+  with non-empty labels. It returns `None` on failure, which means `bad_url`.
+  - There is no IDNA encoding. Firefox already serialises hosts as punycode,
+    and stdlib `encodings.idna` is IDNA2003. IDNA2003 maps `faß.de` to
+    `fass.de`, while Firefox's UTS46 gives `xn--fa-hia.de`, so encoding would
+    make a deny entry silently miss.
+  - A deny entry for a non-ASCII domain is written in its punycode form.
 - **Label-boundary matching.** `bank.com` matches `bank.com` and `www.bank.com`,
   but not `evilbank.com`.
 - **`DEFAULT_DENY`** is a `frozenset` in `gate.py`. It lists generic categories
@@ -239,7 +269,8 @@ every property as `required`:
 - `truncated` (`finish_reason == "length"`)
 - `not_json`
 - `bad_shape`
-- `provider_error` (an `error` object in a 200 body, or no `choices`)
+- `provider_error` (an `error` object in a 200 body, no `choices`, or a 200
+  body that is not JSON at all, such as captive-portal HTML)
 
 **Client** (`client.py`):
 - **Opener.** `build_opener(NoRedirect(), ProxyHandler({}),
@@ -249,13 +280,23 @@ every property as `required`:
     body from reaching any other host.
   - `ProxyHandler({})` stops urllib from reading the `*_PROXY` env vars.
 - **Timeout:** 60 s per request.
-- **Retried** (exponential backoff with jitter, at most 4 attempts):
-  - 429 and 5xx, with `Retry-After` capped at 60 s;
-  - `URLError` and timeouts.
+- **Failure classification**, checked in this order (`HTTPError` is a subclass
+  of `URLError`):
 
-  Once the attempts are exhausted, the client raises `TransportFailure`.
-- **Fatal, never retried:** 3xx (a refused redirect), 401, 402 and 403 all
-  raise `ProviderUnavailable`. Any other 4xx raises `TransportFailure`.
+  | condition                                                        | result                 |
+  |------------------------------------------------------------------|------------------------|
+  | `HTTPError` 3xx (a refused redirect), 401, 402                   | `ProviderUnavailable` (fatal) |
+  | `HTTPError` 400, 403, 404, 413, 422, other 4xx (not 408/429)     | `PageRejected(status)`: a content failure for this page |
+  | `HTTPError` 408, 429, 5xx                                        | retry                  |
+  | `URLError` whose reason is `ssl.SSLCertVerificationError`        | `ProviderUnavailable` (fatal) |
+  | other `URLError`, `TimeoutError`, `OSError`, `http.client.HTTPException` | retry          |
+
+  - 403 is per-page because OpenRouter returns 403 when moderation flags an
+    input. A key that lacks permission fails every page, and the
+    content-failure breaker catches that (§5.4).
+  - Retries use exponential backoff with jitter, at most 4 attempts, with
+    `Retry-After` capped at 60 s. When retries are exhausted, the client
+    raises `TransportFailure`.
 - **Logging.** Logs hold only the SHA, the HTTP status and the failure kind —
   never request bodies, page text, headers or error bodies (I5).
 
@@ -266,7 +307,8 @@ every property as `required`:
   content/                            (owned by firefox_host; read-only here)
   digest/                             (owned by panopticon-digest)
     <sha[:2]>/<sha>.digest.json       record
-    <sha[:2]>/<sha>.digest.fail.json  content-failure marker: kind, at, model, prompt_version
+    <sha[:2]>/<sha>.digest.fail.json  content-failure marker: kind, status?, at,
+                                      endpoint, model, prompt_version
     # later slices, same StageStore:  <sha>.triage.json, <sha>.embed.json
   digest.lock                         single-instance guard
 ```
@@ -285,7 +327,7 @@ every property as `required`:
 | `model`          | config                                                        |
 | `prompt_version` | `PROMPT_VERSION` in `prompt.py`                               |
 | `input_chars`    | length of the text sent                                       |
-| `truncated`      | whether the text was cut to `max_input_chars`                 |
+| `input_truncated`| whether the text was cut to `max_input_chars`                 |
 | `summary`        | the provider response                                         |
 | `claims`         | the provider response                                         |
 | `entities`       | the provider response                                         |
@@ -304,7 +346,11 @@ every property as `required`:
 
 **Units** (shipped, not enabled):
 - `systemd/digest.service`: oneshot, `ExecStart=panopticon-digest`,
-  `EnvironmentFile=-%h/.config/panopticon/digest.env`, `TimeoutStartSec=30min`.
+  `EnvironmentFile=-%h/.config/panopticon/digest.env`, `TimeoutStartSec=2h`.
+  - The env file path is fixed at `~/.config`. systemd cannot honour
+    `XDG_CONFIG_HOME` there; README notes it.
+  - The breakers bound the worst case well under 2 h: 3 transport failures ×
+    4 attempts × (60 s + backoff), plus successes at about 10–30 s each.
 - `systemd/digest.timer`: daily, `Persistent=true`.
 - New `[project.scripts]` entry: `panopticon-digest`.
 
@@ -326,20 +372,31 @@ every property as `required`:
   per run, so about daily. Triage, which is deferred, is the real fix; a
   per-URL cooldown is the fallback if it bites (OQ-5).
 
-**Breaker:**
-- A content failure (`refusal`, `truncated`, `not_json`, `bad_shape`) writes a
-  fail marker and the run continues. Deterministic failures never block
-  progress.
-- `ProviderUnavailable` aborts the run at once.
-- 3 consecutive `TransportFailure` or `provider_error` results abort the run.
-- An aborted run exits 1 and leaves no marker for the page it aborted on.
+**Breaker and fail markers (D13, D14):**
+- **Content failures** are `refusal`, `truncated`, `not_json`, `bad_shape` and
+  `PageRejected`.
+  - A content failure **holds** a fail marker in memory, and the run
+    continues.
+  - A success in the same run **flushes** the held markers to disk. At the end
+    of the run, held markers are flushed only if the run had at least one
+    success.
+  - So markers are written only in runs that proved the provider healthy. A
+    model that ignores the schema, a bad key returning 403, or a provider-wide
+    outage never marks the corpus failed.
+- **5 consecutive content failures** abort the run, and the held markers are
+  discarded.
+- **`ProviderUnavailable`** aborts the run at once.
+- **3 consecutive `TransportFailure` / `provider_error`** results abort the run.
+  These failures never write a marker; the page is retried next run.
+- **Aborts:** an aborted run exits 1 and writes no marker for the streak that
+  aborted it.
 
 ### 5.5 Invariants, Assumptions & Edge Cases
 
 - **I1:** Nothing is sent for a page whose verdict is not `Pass`. For a page
   that passes, only the host, title and truncated `text_content` are sent.
 - **I2:** Only `panopticon/digest/client.py` imports `urllib.request`,
-  `http.client`, `ssl` or `socket`.
+  `http.client`, `ssl` or `socket` (subject to OQ-6, `amo.py`).
 - **I3:** Without `enabled = true`, a non-dry run makes no network call and
   writes nothing, not even the lock file. A dry run never makes a network call
   and never writes.
@@ -363,6 +420,13 @@ every property as `required`:
 - **OQ-4:** The contents of `DEFAULT_DENY`: generic categories only, none of
   the user's own domains. **Settle in `/plan`** as a concrete list, then check
   its coverage with `--dry-run`.
+- **OQ-6 (needs the user's call; blocks lock):** `panopticon/amo.py` is a second
+  egress, a dev tool that queries AMO signing status. Options:
+  - **(a)** Move it and `tests/test_amo.py` out of the shipped package (for
+    example to `tools/amo.py`), and update the `Justfile` recipe. I2 then
+    holds with no exemption.
+  - **(b)** Keep it as the one named exemption, and scope DEC-002's "sole
+    egress" wording to runtime binaries.
 - **OQ-5:** Path rules or a per-URL cooldown. The design is domain-only; add
   either only if dry-run data asks for it.
 
@@ -404,6 +468,10 @@ every property as `required`:
 `panopticon/fsutil.py`.**
 - All three atomic-write variants and the poller's lock migrate.
 - This is behaviour-preserving: the existing suites stay green unchanged.
+- Round 3 proposed migrating only what digest needs, leaving the rest for
+  later. Declined: that would leave a parallel implementation, which the
+  user's standards forbid. The suites are the proof, and
+  `test_git_poller.py`'s direct `fcntl.flock` pins the lock contract.
 
 **D7: No digest retention in this slice.** Content is never deleted today.
 RSK-001 owns deletion and its cascade.
@@ -421,7 +489,9 @@ config change applies retroactively.
 - Decided by the user on 2026-10-01.
 - The file is dead network code; trafilatura is removed from `pyproject.toml`
   and from both `flake.nix` lists.
-- I2 then holds over the whole package with no exemption.
+- `uv.lock` is re-locked. The `content.py`/`ingest/__init__.py` docstrings drop
+  their Trafilatura mentions. lxml and markdownify stay as dependencies.
+- I2 then holds over the capture code. `amo.py` is OQ-6.
 
 **D11: Send the host, not the URL.**
 - Stored paths can carry secrets: share links, token pages, OAuth flows. The
@@ -435,10 +505,20 @@ config change applies retroactively.
   This removes the index-loss window and the reconcile code.
 - An index can be added when a consumer needs one.
 
-**D13: Content failures are recorded; only transport and provider failures
-trip the breaker.**
+**D13: Content failures are recorded; transport and provider failures are not.**
 - A deterministic failure would otherwise abort every run at the same place
-  and stall the backfill.
+  and stall the backfill. This now includes page-specific 400/403 responses
+  (`PageRejected`).
+
+**D14: Fail markers are written only in a run that proved the provider
+healthy.**
+- Content failures are held until a success; they are discarded when 5 in a
+  row abort the run, or when the run ends with no success.
+- This stops a systemic fault from writing permanent markers across the
+  corpus. Such faults include a schema-ignoring model, a key without
+  permission, and moderation of every page.
+- Rejected: writing markers immediately, which needs no hold and flush. A
+  large backfill hitting a systemic fault would then mark everything failed.
 
 ## 8. Risks & Mitigations
 
@@ -474,12 +554,12 @@ trip the breaker.**
   - an unknown key at each level;
   - a literal `api_key`;
   - a non-https endpoint;
-  - a non-normalisable domain entry;
-  - an IDN entry normalised to punycode.
+  - a non-normalisable or non-ASCII domain entry;
+  - `bool` in a numeric field.
 - `gate`:
   - every reason in the table;
-  - a trailing dot, mixed case, an IDN host, and an IDNA error (`bad_url`, not
-    a crash);
+  - a trailing dot, mixed case, a punycode host, and a non-ASCII host or empty
+    label (`bad_url`, not a crash);
   - `evilbank.com` vs `bank.com`;
   - IPv4/IPv6 literals, a single-label host, and `*.local`, including when
     `allow` is set;
@@ -490,19 +570,21 @@ trip the breaker.**
   - the defaults apply when `deny` is omitted.
 - `pending`:
   - a latest row that is gated or done means no fallback;
+  - `superseded` and `done` reasons;
   - mixed tz offsets and `Z` suffixes;
   - newest-first ordering.
 - `build_request`:
   - only the host, title and text appear (the URL path and userinfo are
     absent);
-  - truncation sets `truncated`;
+  - truncation sets `input_truncated`;
   - the schema shape and `require_parameters`;
   - the page sits inside the delimiter.
-- `parse_digest`: success, and each `Failure` kind.
+- `parse_digest`: success, each `Failure` kind, and a non-JSON 200 body
+  (`provider_error`).
 
 **Store:**
 - the record round trip in `tmp_path`;
-- the fail marker counts as done;
+- the fail marker counts as done, and carries `endpoint`;
 - idempotence (I4).
 
 **Run level**, with an injected fake transport:
@@ -510,17 +592,25 @@ trip the breaker.**
 - a dry run with `enabled = false` and no key: verdicts printed, no calls, no
   writes;
 - a gated page never reaches the transport (I1);
-- a content failure writes a marker and the run continues;
+- a content failure followed by a success writes the marker;
+- content failures with no success in the run write no marker;
+- 5 consecutive content failures abort and write no markers;
+- a `PageRejected` (400/403) is a content failure, not an abort;
 - `ProviderUnavailable` aborts with exit 1;
 - 3 consecutive transport failures abort;
 - the lazy walk stops at `limit`;
 - the exit codes match the §5.2 table.
 
 **Client**, against a local `http.server` fixture:
+- each row of the failure-classification table, including a 401 vs a
+  generic `URLError` (ordering), and a raw `ConnectionResetError` being
+  retried;
 - a 302 raises `ProviderUnavailable` and the target is never contacted;
 - a 429 with a large `Retry-After` is capped and retried;
 - a 401 is fatal;
-- with a bogus `HTTPS_PROXY` set, the connection still goes direct.
+- with a bogus `HTTP_PROXY` set and `no_proxy` cleared, the connection still
+  goes direct. The fixture is plain http, so `HTTPS_PROXY` would make this
+  test pass vacuously.
 
 **I5:** a `caplog` test across failing and succeeding runs finds no page text
 and no key in the logs.
@@ -528,7 +618,8 @@ and no key in the logs.
 **I2 tripwire:**
 - An AST walk over `panopticon/**.py` checks the I2 module list.
 - It is a tripwire, not a proof: `asyncio.open_connection` would evade it.
-- With D10 it needs no exemptions.
+- With D10, its exemptions depend on OQ-6: none under (a), or `amo.py` by name
+  under (b).
 
 **D6 behaviour gate:** the content, store, segmentizer and git-poller suites
 stay green unchanged.
@@ -537,8 +628,8 @@ stay green unchanged.
 pages, then a manual read of the records (OQ-1).
 
 **Docs:**
-- **README:** replace "No network calls" (lines 11 and 119) with the DEC-002
-  statement, and add the binary table row, config, how to enable it, and that
+- **README:** replace "Nothing leaves the machine" (line 11) and "No network
+  calls" (line 119) with the DEC-002 statement, and add the binary table row, config, how to enable it, and that
   digests are untrusted.
 - **`docs/privacy.md`:** state the egress, and exactly what leaves the host
   (I1).
@@ -588,3 +679,28 @@ All 17 findings were verified and accepted:
   - `use_env_proxy` (always `ProxyHandler({})`);
   - the digest index and `reconcile_index` (D12);
   - lazy `.json` reads were adopted.
+
+**Round 3** (2026-10-01, a fresh adversarial subagent; it read the live index
+and reported aggregates only). All 13 findings were verified:
+- **Blocker:** `amo.py` is a second egress → OQ-6, the user's call.
+- **Major:**
+  - moderation-403 and page-specific 400 would abort every run at the same
+    page → `PageRejected` is a content failure;
+  - a systemic fault would write markers across the corpus → D14,
+    hold-and-flush markers plus a content-failure breaker;
+  - the retry rules could not be built as written (`HTTPError` is a
+    `URLError`; raw socket errors; certificate failures) → an ordered
+    classification table.
+- **Minor:**
+  - `provider_error` never writes a marker;
+  - IDNA2003 vs UTS46 → IDNA dropped, ASCII required;
+  - the vacuous proxy test → `HTTP_PROXY`;
+  - `bool` passing as `int`;
+  - the marker carries `endpoint`, and `truncated` is renamed
+    `input_truncated`;
+  - dry-run's no-config exit, its `superseded`/`done` reasons, and its full
+    `.json` read;
+  - `uv.lock` and docstrings for D10;
+  - the env-file path and the 2 h timeout;
+  - corpus numbers moved into §2/§3 (backfill about 1.6k; no starvation).
+- **Cuts:** IDNA was taken. Narrowing the D6 migration was declined (see D6).

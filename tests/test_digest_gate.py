@@ -6,6 +6,7 @@ from dataclasses import replace
 
 import pytest
 
+from panopticon.digest.config import parse_config
 from panopticon.digest.gate import (
     DEFAULT_DENY,
     GateConfig,
@@ -181,3 +182,9 @@ def test_default_deny_entries_are_already_normalised():
 )
 def test_default_deny_covers_the_categories(host: str):
     assert verdict(f"https://{host}/") == Reject(Reason.DENIED_DOMAIN)
+
+
+def test_default_deny_applies_when_config_omits_deny():
+    cfg = parse_config({"digest": {"model": "vendor/model"}}).gate
+    assert verdict("https://mail.google.com/", cfg=cfg) == Reject(Reason.DENIED_DOMAIN)
+    assert verdict("https://example.org/", cfg=cfg) == Pass("example.org")

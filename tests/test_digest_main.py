@@ -40,7 +40,13 @@ def write_config(path: Path, *, enabled: bool = True, extra: str = "") -> Path:
 
 
 def add_page(
-    root: Path, n: int, *, host: str = "example.org", path: str = "", chars: int = 2000
+    root: Path,
+    n: int,
+    *,
+    host: str = "example.org",
+    path: str = "",
+    chars: int = 2000,
+    title: str | None = None,
 ) -> str:
     """Store page ``n`` (captured ``n`` minutes after T0) and return its SHA."""
     text = f"PAGETEXT-{n:03d} " + "A long sentence of ordinary prose about a subject. " * (
@@ -48,7 +54,7 @@ def add_page(
     )
     entry = ContentStore(root=content_dir(root), domain=host).store(
         url=f"https://{host}/{path or f'page-{n}'}",
-        title=f"Title {n}",
+        title=title or f"Title {n}",
         text_content=text,
         content_html="<p>prose</p>",
         captured_at=(T0 + timedelta(minutes=n)).isoformat(),
@@ -289,6 +295,14 @@ def test_dry_run_reports_every_row_beyond_the_limit(env: Env, capsys: pytest.Cap
     assert capsys.readouterr().out.count("pass\t") == 3
 
 
+def test_printable_escapes_controls_in_dry_run_titles(env: Env, capsys):
+    add_page(env.root, 1, title="evil\x1b]0;pwned\x07title")
+    env.run(dry_run=True)
+    [line] = [x for x in capsys.readouterr().out.splitlines() if x.startswith("pass\t")]
+    assert "\x1b" not in line and "\x07" not in line
+    assert line.split("\t")[4] == "evil\\x1b]0;pwned\\x07title"
+
+
 # --- D13 / D14: failure handling ----------------------------------------------
 
 
@@ -500,3 +514,70 @@ def test_unit_runs_at_info_so_the_design_log_rows_reach_the_journal():
         if line.startswith("ExecStart=")
     )
     assert exec_start == ["panopticon-digest", "-v"]
+
+
+# --- SL-008: --audit ------------------------------------------------------------
+
+
+def v4(url: str, surface: str = "draft", title: str = "T") -> dict:
+    return {"url": url, "title": title, "prompt_version": "4", "private_surface": surface}
+
+
+def audit(env: Env, capsys: pytest.CaptureFixture[str]) -> tuple[int, list[str]]:
+    code = main(["--audit", "--root", str(env.root), "--config", str(env.config)])
+    return code, capsys.readouterr().out.splitlines()
+
+
+def test_audit_lists_exposed_flags_and_candidates_and_writes_nothing(env: Env, capsys):
+    write_config(env.config, enabled=False, extra='[gate]\ndeny = ["covered.example"]')
+    store = StageStore(env.root / "digest", "digest")
+    store.put("a" * 64, v4("https://www.site.example/compose/new?x=1"))
+    store.put("b" * 64, v4("https://covered.example/inbox", "private_message"))
+    store.put("c" * 64, v4("https://site.example/blog", "public"))
+    store.put_failure("d" * 64, {"kind": "bad_shape"})
+    before = snapshot(env.root)
+
+    code, out = audit(env, capsys)
+
+    assert code == 0
+    assert snapshot(env.root) == before
+    assert out == [
+        "\t".join(["draft", "www.site.example", "/compose/new", "a" * 64, "T"]),
+        'deny\t"site.example/compose"\t1',
+        "covered=1 draft=1 public=1",
+    ]
+
+
+def test_audit_escapes_terminal_controls_in_every_field(env: Env, capsys):
+    StageStore(env.root / "digest", "digest").put(
+        "a" * 64, v4("https://site.example/a%1bb/c", title="x\x1b]0;pwned\x07\tz")
+    )
+    _, out = audit(env, capsys)
+    assert not any(c in line for line in out for c in "\x1b\x07")
+    assert len(out[0].split("\t")) == 5
+    assert out[0].split("\t")[4] == "x\\x1b]0;pwned\\x07\\tz"
+    assert out[1] == 'deny\t"site.example/a\\u001bb"\t1'  # TOML-ready escape
+
+
+def test_audit_counts_unflagged_and_malformed_records(env: Env, capsys):
+    store = StageStore(env.root / "digest", "digest")
+    store.put("a" * 64, {"url": "https://site.example/x", "prompt_version": "3"})
+    store.put("b" * 64, {"url": "https://site.example/x", "prompt_version": "4"})
+    assert audit(env, capsys)[1] == ["malformed=1 unflagged=1"]
+
+
+def test_audit_without_a_config_does_nothing(env: Env, capsys):
+    env.config.unlink()
+    assert audit(env, capsys) == (0, [])
+
+
+def test_audit_with_a_malformed_config_fails(env: Env, capsys):
+    env.config.write_text("enabled = maybe", encoding="utf-8")
+    assert audit(env, capsys)[0] == 2
+
+
+@pytest.mark.parametrize("other", [["--dry-run"], ["--limit", "3"]])
+def test_audit_excludes_the_run_modes(other: list[str]):
+    with pytest.raises(SystemExit) as exc:
+        main(["--audit", *other])
+    assert exc.value.code == 2

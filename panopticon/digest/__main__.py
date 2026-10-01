@@ -30,8 +30,10 @@ from datetime import UTC, datetime
 from itertools import islice
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from panopticon.cli import configure_logging
+from panopticon.digest.audit import audit_records
 from panopticon.digest.client import (
     PageRejected,
     ProviderUnavailable,
@@ -70,9 +72,13 @@ PROVIDER_BREAKER = 3  # transport failures / provider_error since the last succe
 def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
     configure_logging(args.verbose)
+    root = args.root or state_dir()
+    config_path = args.config or config_dir() / "digest.toml"
+    if args.audit:
+        return audit(root, config_path)
     return run(
-        args.root or state_dir(),
-        args.config or config_dir() / "digest.toml",
+        root,
+        config_path,
         limit=args.limit,
         dry_run=args.dry_run,
         env=os.environ,
@@ -92,14 +98,9 @@ def run(
     now: Callable[[], datetime],
 ) -> int:
     """One run; returns the exit code (design §5.2 table)."""
-    if not config_path.exists():
-        log.info("no config at %s; nothing to do", config_path)
-        return 0
-    try:
-        cfg = parse_config(load_toml(config_path))
-    except (OSError, tomllib.TOMLDecodeError, ConfigError) as e:
-        log.error("config %s: %s", config_path, e)
-        return 2
+    cfg = _load_config(config_path)
+    if isinstance(cfg, int):
+        return cfg
     store = StageStore(root / "digest", STAGE)
     if dry_run:
         _dry_run(_walk(root, store, cfg.gate), cfg.provider)
@@ -126,6 +127,43 @@ def run(
         pages = (s for s in _walk(root, store, cfg.gate) if s.page is not None)
         batch = islice(pages, limit or cfg.max_pages_per_run)
         return _digest(batch, _Ledger(store), cfg, key, transport, now)
+
+
+def audit(root: Path, config_path: Path) -> int:
+    """SL-008: print flagged records the current gate would still send, with deny
+    candidates. Reads only; interactive use only, never from a unit (design I5)."""
+    cfg = _load_config(config_path)
+    if isinstance(cfg, int):
+        return cfg
+    report = audit_records(StageStore(root / "digest", STAGE).records(), cfg.gate)
+    for f in report.flagged:
+        print(_row(f.surface, f.host, urlsplit(f.url).path, f.sha, f.title or ""))
+    for entry, urls in report.candidates:
+        print(f"deny\t{json.dumps(entry)}\t{urls}")  # ASCII-escaped: a valid TOML string
+    print(" ".join(f"{k}={v}" for k, v in sorted(report.counts.items())))
+    return 0
+
+
+def _load_config(config_path: Path) -> DigestConfig | int:
+    """The parsed config, or the exit code: 0 when there is none, 2 when it is malformed."""
+    if not config_path.exists():
+        log.info("no config at %s; nothing to do", config_path)
+        return 0
+    try:
+        return parse_config(load_toml(config_path))
+    except (OSError, tomllib.TOMLDecodeError, ConfigError) as e:
+        log.error("config %s: %s", config_path, e)
+        return 2
+
+
+def _row(*fields: str) -> str:
+    """Tab-separated, with every field made safe for a terminal."""
+    return "\t".join(_printable(f) for f in fields)
+
+
+def _printable(s: str) -> str:
+    """Escape non-printables (controls, tabs, newlines): page text must not drive the terminal."""
+    return "".join(c if c.isprintable() else c.encode("unicode_escape").decode("ascii") for c in s)
 
 
 # --- the walk -------------------------------------------------------------------
@@ -181,10 +219,10 @@ def _dry_run(walk: Iterable[_Seen], provider: ProviderConfig) -> None:
         if seen.page is not None:
             chars = build_request(seen.page, provider).input_chars
             title = " ".join((seen.page.title or "").split())
-            print(f"pass\t{sha}\t{chars}\t{seen.page.host}\t{title}")
+            print(_row("pass", str(sha), str(chars), seen.page.host, title))
             counts["pass"] += 1
         elif isinstance(seen.verdict, Reject):
-            print(f"{seen.verdict.reason}\t{sha}")
+            print(_row(seen.verdict.reason, str(sha)))
             counts[seen.verdict.reason] += 1
     print(" ".join(f"{k}={v}" for k, v in sorted(counts.items())))
 
@@ -341,8 +379,16 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         action="store_true",
         help="print every row's verdict; no network, no writes (ignores enabled and the key)",
     )
+    p.add_argument(
+        "--audit",
+        action="store_true",
+        help="list flagged digests the gate would still send, with deny candidates; reads only",
+    )
     p.add_argument("-v", "--verbose", action="count", default=0, help="-v INFO, -vv DEBUG")
-    return p.parse_args(argv)
+    args = p.parse_args(argv)
+    if args.audit and (args.dry_run or args.limit is not None):
+        p.error("--audit cannot be combined with --dry-run or --limit")
+    return args
 
 
 def _positive_int(s: str) -> int:

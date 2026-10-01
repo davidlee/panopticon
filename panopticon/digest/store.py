@@ -12,7 +12,7 @@ globs, so a lost index can never re-send a page.
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
 from pathlib import Path
 from typing import Any
 
@@ -28,12 +28,17 @@ class StageStore:
 
     def done(self) -> set[str]:
         """SHAs with a record or a fail marker for this stage."""
-        return {
-            path.name.removesuffix(suffix)
-            for suffix in (self._record, self._failure)
-            for path in self.root.glob(f"??/*{suffix}")
-            if not path.name.startswith(".")
-        }
+        return {sha for suffix in (self._record, self._failure) for sha, _ in self._files(suffix)}
+
+    def records(self) -> Iterator[tuple[str, dict[str, Any] | None]]:
+        """Each record as ``(sha, data)``; ``data`` is ``None`` if unreadable or not an object."""
+        for sha, path in self._files(self._record):
+            yield sha, _read_object(path)
+
+    def _files(self, suffix: str) -> Iterator[tuple[str, Path]]:
+        for path in self.root.glob(f"??/*{suffix}"):
+            if not path.name.startswith("."):  # an in-flight atomic write
+                yield path.name.removesuffix(suffix), path
 
     def put(self, sha: str, record: Mapping[str, Any]) -> None:
         self._write(shard_path(self.root, sha, self._record), record)
@@ -44,3 +49,11 @@ class StageStore:
     @staticmethod
     def _write(path: Path, data: Mapping[str, Any]) -> None:
         atomic_write_text(path, json.dumps(data, ensure_ascii=False, indent=2) + "\n")
+
+
+def _read_object(path: Path) -> dict[str, Any] | None:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, RecursionError):
+        return None
+    return data if isinstance(data, dict) else None

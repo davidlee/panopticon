@@ -133,7 +133,7 @@ def normalise_deny_entry(raw: str) -> str | None:
     norm = normalise_host(host)
     if norm is None or any(c in path for c in "?#") or any(c.isspace() for c in path):
         return None
-    path = _normalise_path(path)
+    path = normalise_path(path)
     return norm + path if path != "/" else norm
 
 
@@ -153,7 +153,7 @@ def gate(url: str, quality: float, length: int | None, cfg: GateConfig) -> Verdi
         return Reject(Reason.NO_HOST)
     if _is_local(host):
         return Reject(Reason.LOCAL_HOST)
-    if _denied(host, _normalise_path(parts.path), cfg.deny):
+    if _denied(host, normalise_path(parts.path), cfg.deny):
         return Reject(Reason.DENIED_DOMAIN)
     if cfg.allow is not None and not _under_any(host, cfg.allow):
         return Reject(Reason.NOT_ALLOWED)
@@ -180,7 +180,7 @@ def _is_local(host: str) -> bool:
     return _is_ip_literal(host) or "." not in host or _under_any(host, _LOCAL_SUFFIXES)
 
 
-def _normalise_path(path: str) -> str:
+def normalise_path(path: str) -> str:
     """Percent-decoded, lowercased, ``;params`` and empty segments dropped, ``.``/``..``
     resolved: compares wider, so deny fails closed."""
     out: list[str] = []

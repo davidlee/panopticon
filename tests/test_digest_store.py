@@ -54,3 +54,26 @@ def test_done_ignores_stray_files(tmp_path: Path):
     (shard / "notes.txt").write_text("")
     (tmp_path / f"{SHA_A}.digest.json").write_text("{}")  # not in a shard
     assert StageStore(tmp_path, "digest").done() == set()
+
+
+# records (SL-008) ------------------------------------------------------------
+
+
+def test_records_yields_each_record_and_skips_markers_and_stray_files(tmp_path: Path):
+    store = StageStore(tmp_path, "digest")
+    store.put(SHA_A, {"summary": "a"})
+    store.put_failure(SHA_B, _marker())
+    StageStore(tmp_path, "triage").put(SHA_B, {})
+    (tmp_path / "aa" / f".{SHA_B}.digest.json.123.tmp").write_text("{}")
+    assert list(store.records()) == [(SHA_A, {"summary": "a"})]
+
+
+def test_records_yields_none_for_unreadable_or_non_object_files(tmp_path: Path):
+    shard = tmp_path / "aa"
+    shard.mkdir()
+    (shard / f"{SHA_A}.digest.json").write_text("{not json")
+    (shard / f"{'a' * 63}c.digest.json").write_text("[1]")
+    assert sorted(StageStore(tmp_path, "digest").records()) == [
+        (SHA_A, None),
+        ("a" * 63 + "c", None),
+    ]

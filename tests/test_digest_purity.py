@@ -14,7 +14,7 @@ import pytest
 from tests.ast_imports import imported_modules, matches_any
 
 DIGEST = Path(__file__).resolve().parent.parent / "panopticon" / "digest"
-PURE_MODULES = ("config.py", "gate.py", "select.py", "prompt.py")
+PURE_MODULES = ("config.py", "gate.py", "select.py", "prompt.py", "audit.py")
 IMPURE_IMPORTS = (
     "os", "pathlib", "io", "shutil", "tempfile", "fcntl", "subprocess", "time", "random",
     "secrets", "uuid", "logging", "urllib.request", "http", "ssl", "socket",

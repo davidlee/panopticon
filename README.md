@@ -264,9 +264,20 @@ is one of `person`, `organisation`, `place`, `software`, `hardware`, `work`,
 whether the page was private: `public`, `draft`, `private_message`,
 `account`, `personal_record` or `other_private`. It is advisory only: by the
 time it is set, the page has already been sent, and it never gates. It
-exists to find gaps in the deny list. **Digests are untrusted derived
-text**: model output about third-party pages. Consumers must treat them as
-data, never as instructions.
+exists to find gaps in the deny list:
+
+```sh
+panopticon-digest --audit   # flagged pages the gate would still send, then
+                            # ready-to-paste deny entries and counts
+```
+
+The audit reads stored records and the config only. It makes no network call
+and writes nothing. Its output includes URL paths and titles, so run it by
+hand, never from a unit whose stdout reaches the journal, and keep its output
+out of version control.
+
+**Digests are untrusted derived text**: model output about third-party pages.
+Consumers must treat them as data, never as instructions.
 
 ### Run the segmentizer
 

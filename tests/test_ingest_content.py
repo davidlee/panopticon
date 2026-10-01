@@ -9,6 +9,8 @@ from panopticon.ingest.content import (
     _html_to_markdown,
     content_hash,
     quality_score,
+    read_index,
+    shard_path,
 )
 
 
@@ -227,3 +229,27 @@ class TestContentStore:
             content_html="<p>Post content.</p>",
         )
         assert (tmp_path / "deep" / "nested" / "articles.jsonl").exists()
+
+
+class TestLayout:
+    def test_shard_path_is_sharded_by_hash_prefix(self, tmp_path: Path) -> None:
+        assert shard_path(tmp_path, "abcdef", ".json") == tmp_path / "ab" / "abcdef.json"
+
+    def test_stored_record_lives_at_its_shard_path(self, tmp_path: Path) -> None:
+        store = ContentStore(root=tmp_path, domain="example.com")
+        entry = store.store(
+            url="https://example.com/a",
+            title="A",
+            text_content="Body text. " * 60,
+            content_html="<p>Body</p>",
+        )
+        assert entry is not None
+        assert shard_path(tmp_path, entry["content_hash"], ".json").is_file()
+        assert shard_path(tmp_path, entry["content_hash"], ".md").is_file()
+
+    def test_read_index_skips_unparseable_lines(self, tmp_path: Path) -> None:
+        (tmp_path / "articles.jsonl").write_text('{"url":"a"}\nnot json\n\n{"url":"b"}\n')
+        assert [r["url"] for r in read_index(tmp_path)] == ["a", "b"]
+
+    def test_read_index_of_missing_store_is_empty(self, tmp_path: Path) -> None:
+        assert read_index(tmp_path / "nope") == []

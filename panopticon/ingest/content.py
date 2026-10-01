@@ -36,6 +36,28 @@ def content_dir(root: Path | str | None = None) -> Path:
     return root / _CONTENT_DIR
 
 
+def shard_path(root: Path, ch: str, suffix: str) -> Path:
+    """``root/<ch[:2]>/<ch><suffix>`` — the sharded layout shared by content and digest."""
+    return root / ch[:2] / f"{ch}{suffix}"
+
+
+def read_index(root: Path) -> list[dict[str, Any]]:
+    """The index rows under content ``root``; unparseable lines are skipped."""
+    path = root / _INDEX
+    if not path.exists():
+        return []
+    entries: list[dict[str, Any]] = []
+    with open(path, encoding="utf-8") as fh:
+        for line in fh:
+            line = line.strip()
+            if line:
+                try:
+                    entries.append(json.loads(line))
+                except json.JSONDecodeError:
+                    pass
+    return entries
+
+
 def content_hash(text: str) -> str:
     """SHA-256 hex digest of *text* (used for de-duplication)."""
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
@@ -135,11 +157,6 @@ class ContentStore:
             content_html=content_html,
         )
 
-        # Write content files.
-        shard = ch[:2]
-        shard_dir = self.root / shard
-        shard_dir.mkdir(parents=True, exist_ok=True)
-
         raw = {
             "content_hash": ch,
             "url": url,
@@ -156,12 +173,13 @@ class ContentStore:
             "extractor": extractor,
             "quality_score": round(quality, 3),
         }
-        json_path = shard_dir / f"{ch}.json"
+        # Write content files.
+        json_path = shard_path(self.root, ch, ".json")
         atomic_write_text(json_path, json.dumps(raw, separators=(",", ":"), ensure_ascii=False))
 
         # Convert HTML to Markdown.
         md = _html_to_markdown(content_html, url)
-        md_path = shard_dir / f"{ch}.md"
+        md_path = shard_path(self.root, ch, ".md")
         frontmatter = _render_frontmatter(raw)
         atomic_write_text(md_path, frontmatter + "\n" + md)
 
@@ -182,11 +200,11 @@ class ContentStore:
         return entry
 
     def has_content(self, ch: str) -> bool:
-        return (self.root / ch[:2] / f"{ch}.json").exists()
+        return shard_path(self.root, ch, ".json").exists()
 
     def list_articles(self) -> list[dict[str, Any]]:
         """Return all index entries."""
-        return _read_index(self.root / _INDEX)
+        return read_index(self.root)
 
 
 def _html_to_markdown(html: str, base_url: str | None = None) -> str:
@@ -237,17 +255,3 @@ def _index_has_hash(path: Path, ch: str) -> bool:
                 return True
     return False
 
-
-def _read_index(path: Path) -> list[dict[str, Any]]:
-    if not path.exists():
-        return []
-    entries: list[dict[str, Any]] = []
-    with open(path, encoding="utf-8") as fh:
-        for line in fh:
-            line = line.strip()
-            if line:
-                try:
-                    entries.append(json.loads(line))
-                except json.JSONDecodeError:
-                    pass
-    return entries

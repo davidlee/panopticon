@@ -10,29 +10,15 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
+from tests.ast_imports import imported_modules, matches_any
+
 PACKAGE = Path(__file__).resolve().parent.parent / "panopticon"
 NETWORK_MODULES = ("urllib.request", "http.client", "ssl", "socket")
 SOLE_EGRESS = PACKAGE / "digest" / "client.py"
 
 
-def _imported_modules(tree: ast.AST) -> set[str]:
-    """Every absolute module an import statement can bind, incl. ``from x import y``."""
-    found: set[str] = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            found.update(alias.name for alias in node.names)
-        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
-            found.add(node.module)
-            found.update(f"{node.module}.{alias.name}" for alias in node.names)
-    return found
-
-
-def _is_network(module: str) -> bool:
-    return any(module == m or module.startswith(m + ".") for m in NETWORK_MODULES)
-
-
 def _network_imports(source: str) -> set[str]:
-    return {m for m in _imported_modules(ast.parse(source)) if _is_network(m)}
+    return {m for m in imported_modules(ast.parse(source)) if matches_any(m, NETWORK_MODULES)}
 
 
 def test_detects_every_import_form():

@@ -165,7 +165,9 @@ def _niri_client() -> CompositorClient:
 
     sock = os.environ.get(NIRI_SOCKET_ENV)
     if not sock:
-        raise RuntimeError(f"--compositor niri requires ${NIRI_SOCKET_ENV}; it is not set")
+        raise RuntimeError(
+            f"--compositor niri requires ${NIRI_SOCKET_ENV}; it is not set"
+        )
     return NiriClient(sock)
 
 

@@ -109,7 +109,8 @@ class TestContentStore:
             title="Test Article",
             text_content="This is a test article with enough content to pass quality checks. " * 20,
             content_html=(
-                "<p>This is a test article with enough content to pass quality checks.</p>"
+                "<p>This is a test article with enough content "
+                "to pass quality checks.</p>"
             ),
         )
         assert entry is not None

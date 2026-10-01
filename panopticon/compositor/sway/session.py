@@ -198,7 +198,9 @@ def _workspace_focus(payload: dict[str, Any], state: DesktopState) -> DesktopObs
 
 def _workspace_urgent(payload: dict[str, Any], state: DesktopState) -> DesktopObservation:
     current = payload.get("current") or {}
-    fields = _compact({"workspace": current.get("name"), "urgent": current.get("urgent", True)})
+    fields = _compact(
+        {"workspace": current.get("name"), "urgent": current.get("urgent", True)}
+    )
     return DesktopObservation("workspace_urgent", fields, state)
 
 

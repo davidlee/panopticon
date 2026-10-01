@@ -191,47 +191,23 @@ def _tree(windows: list[dict[str, Any]]) -> dict[str, Any]:
     outputs: dict[str, dict] = {}
     for w in windows:
         out = outputs.setdefault(
-            w["output"],
-            {
-                "id": hash(w["output"]) & 0xFFFF,
-                "type": "output",
-                "name": w["output"],
-                "focused": False,
-                "nodes": [],
-                "floating_nodes": [],
-            },
+            w["output"], {"id": hash(w["output"]) & 0xFFFF, "type": "output",
+                          "name": w["output"], "focused": False, "nodes": [],
+                          "floating_nodes": []},
         )
         ws = next((n for n in out["nodes"] if n["name"] == w["ws"]), None)
         if ws is None:
-            ws = {
-                "id": hash(w["ws"]) & 0xFFFF,
-                "type": "workspace",
-                "name": w["ws"],
-                "focused": False,
-                "nodes": [],
-                "floating_nodes": [],
-            }
+            ws = {"id": hash(w["ws"]) & 0xFFFF, "type": "workspace", "name": w["ws"],
+                  "focused": False, "nodes": [], "floating_nodes": []}
             out["nodes"].append(ws)
-        ws["nodes"].append(
-            {
-                "id": w["id"],
-                "type": "con",
-                "app_id": w.get("app_id"),
-                "pid": w.get("pid"),
-                "name": w.get("name"),
-                "focused": w.get("focused", False),
-            }
-        )
+        ws["nodes"].append({
+            "id": w["id"], "type": "con", "app_id": w.get("app_id"),
+            "pid": w.get("pid"), "name": w.get("name"), "focused": w.get("focused", False),
+        })
         if w.get("focused"):
             ws["focused"] = True
-    return {
-        "id": 1,
-        "type": "root",
-        "name": "root",
-        "focused": False,
-        "nodes": list(outputs.values()),
-        "floating_nodes": [],
-    }
+    return {"id": 1, "type": "root", "name": "root", "focused": False,
+            "nodes": list(outputs.values()), "floating_nodes": []}
 
 
 def _get_tree_returning(*trees):
@@ -259,24 +235,10 @@ async def _collect(session: SwaySession) -> list[DesktopObservation]:
 
 
 async def test_session_yields_snapshot_first_then_deltas():
-    tree = _tree(
-        [
-            {
-                "id": 991,
-                "app_id": "firefox",
-                "pid": 1,
-                "name": "MDN",
-                "focused": True,
-                "ws": "2:web",
-                "output": "DP-1",
-            }
-        ]
-    )
-    events = [
-        IpcEvent(
-            "window", {"change": "title", "container": {"id": 991, "name": "Sway IPC — Firefox"}}
-        )
-    ]
+    tree = _tree([{"id": 991, "app_id": "firefox", "pid": 1, "name": "MDN",
+                   "focused": True, "ws": "2:web", "output": "DP-1"}])
+    events = [IpcEvent("window", {"change": "title",
+                                  "container": {"id": 991, "name": "Sway IPC — Firefox"}})]
     obs = await _collect(SwaySession(_events_from(events), _get_tree_returning(tree)))
     assert [o.event for o in obs] == ["snapshot", "window_title"]
     assert obs[0].fields["app_id"] == "firefox"
@@ -287,19 +249,8 @@ async def test_session_yields_snapshot_first_then_deltas():
 
 
 async def test_session_snapshot_only_when_no_events():
-    tree = _tree(
-        [
-            {
-                "id": 991,
-                "app_id": "firefox",
-                "pid": 1,
-                "name": "MDN",
-                "focused": True,
-                "ws": "2:web",
-                "output": "DP-1",
-            }
-        ]
-    )
+    tree = _tree([{"id": 991, "app_id": "firefox", "pid": 1, "name": "MDN",
+                   "focused": True, "ws": "2:web", "output": "DP-1"}])
     obs = await _collect(SwaySession(_events_from([]), _get_tree_returning(tree)))
     assert [o.event for o in obs] == ["snapshot"]
 
@@ -312,83 +263,34 @@ async def test_session_d5_cross_workspace_focus_uses_new_location():
     workspace/output, so this focus would have reported workspace="1:term",
     output="DP-1". The projection now derives the true location.
     """
-    tree = _tree(
-        [
-            {
-                "id": 991,
-                "app_id": "ghostty",
-                "pid": 1,
-                "name": "term",
-                "focused": True,
-                "ws": "1:term",
-                "output": "DP-1",
-            },
-            {
-                "id": 992,
-                "app_id": "slack",
-                "pid": 2,
-                "name": "Slack",
-                "focused": False,
-                "ws": "2:web",
-                "output": "HDMI-1",
-            },
-        ]
-    )
-    events = [
-        IpcEvent(
-            "window",
-            {
-                "change": "focus",
-                "container": {"id": 992, "app_id": "slack", "pid": 2, "name": "Slack"},
-            },
-        )
-    ]
+    tree = _tree([
+        {"id": 991, "app_id": "ghostty", "pid": 1, "name": "term",
+         "focused": True, "ws": "1:term", "output": "DP-1"},
+        {"id": 992, "app_id": "slack", "pid": 2, "name": "Slack",
+         "focused": False, "ws": "2:web", "output": "HDMI-1"},
+    ])
+    events = [IpcEvent("window", {"change": "focus",
+                                  "container": {"id": 992, "app_id": "slack",
+                                                "pid": 2, "name": "Slack"}})]
     obs = await _collect(SwaySession(_events_from(events), _get_tree_returning(tree)))
     focus = obs[1]
     assert focus.event == "window_focus"
-    assert focus.fields["workspace"] == "2:web"  # NEW: was "1:term" pre-fix
-    assert focus.fields["output"] == "HDMI-1"  # NEW: was "DP-1" pre-fix
+    assert focus.fields["workspace"] == "2:web"   # NEW: was "1:term" pre-fix
+    assert focus.fields["output"] == "HDMI-1"     # NEW: was "DP-1" pre-fix
     assert focus.fields["app_id"] == "slack"
 
 
 async def test_session_structural_event_refreshes_index_for_later_focus():
     """A window created after snapshot is located correctly on a later focus,
     because window::new triggers a get_tree index refresh."""
-    snapshot_tree = _tree(
-        [
-            {
-                "id": 991,
-                "app_id": "firefox",
-                "pid": 1,
-                "name": "MDN",
-                "focused": True,
-                "ws": "1:term",
-                "output": "DP-1",
-            }
-        ]
-    )
-    refreshed_tree = _tree(
-        [
-            {
-                "id": 991,
-                "app_id": "firefox",
-                "pid": 1,
-                "name": "MDN",
-                "focused": True,
-                "ws": "1:term",
-                "output": "DP-1",
-            },
-            {
-                "id": 992,
-                "app_id": "slack",
-                "pid": 2,
-                "name": "Slack",
-                "focused": False,
-                "ws": "3:chat",
-                "output": "HDMI-1",
-            },
-        ]
-    )
+    snapshot_tree = _tree([{"id": 991, "app_id": "firefox", "pid": 1, "name": "MDN",
+                            "focused": True, "ws": "1:term", "output": "DP-1"}])
+    refreshed_tree = _tree([
+        {"id": 991, "app_id": "firefox", "pid": 1, "name": "MDN",
+         "focused": True, "ws": "1:term", "output": "DP-1"},
+        {"id": 992, "app_id": "slack", "pid": 2, "name": "Slack",
+         "focused": False, "ws": "3:chat", "output": "HDMI-1"},
+    ])
     con = {"id": 992, "app_id": "slack", "pid": 2, "name": "Slack"}
     events = [
         IpcEvent("window", {"change": "new", "container": con}),
@@ -403,19 +305,8 @@ async def test_session_structural_event_refreshes_index_for_later_focus():
 
 async def test_session_retains_output_across_title_event():
     """F9: output is retained via prior state across an event that doesn't carry it."""
-    tree = _tree(
-        [
-            {
-                "id": 991,
-                "app_id": "firefox",
-                "pid": 1,
-                "name": "MDN",
-                "focused": True,
-                "ws": "2:web",
-                "output": "DP-1",
-            }
-        ]
-    )
+    tree = _tree([{"id": 991, "app_id": "firefox", "pid": 1, "name": "MDN",
+                   "focused": True, "ws": "2:web", "output": "DP-1"}])
     events = [IpcEvent("window", {"change": "title", "container": {"id": 991, "name": "x"}})]
     obs = await _collect(SwaySession(_events_from(events), _get_tree_returning(tree)))
     assert obs[-1].state.output == "DP-1"

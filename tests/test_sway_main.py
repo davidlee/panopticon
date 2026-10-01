@@ -12,7 +12,9 @@ def test_wrapper_forces_compositor_sway(monkeypatch):
         captured["argv"] = argv
         return 0
 
-    monkeypatch.setattr("panopticon.sway_watcher.__main__._desktop_main", fake_desktop_main)
+    monkeypatch.setattr(
+        "panopticon.sway_watcher.__main__._desktop_main", fake_desktop_main
+    )
     rc = main(["--state-dir", "/tmp/behaviour", "-v"])
     assert rc == 0
     assert captured["argv"] == ["--compositor", "sway", "--state-dir", "/tmp/behaviour", "-v"]
@@ -25,6 +27,8 @@ def test_wrapper_passes_empty_args(monkeypatch):
         captured["argv"] = argv
         return 0
 
-    monkeypatch.setattr("panopticon.sway_watcher.__main__._desktop_main", fake_desktop_main)
+    monkeypatch.setattr(
+        "panopticon.sway_watcher.__main__._desktop_main", fake_desktop_main
+    )
     assert main([]) == 0
     assert captured["argv"] == ["--compositor", "sway"]

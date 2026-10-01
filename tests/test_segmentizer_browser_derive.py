@@ -27,7 +27,9 @@ def updated(t: str, **f):
 
 
 def wfocus(t: str, focused: bool, window_id: int = 1):
-    return make_event("firefox", "browser_window_focus", ts=t, window_id=window_id, focused=focused)
+    return make_event(
+        "firefox", "browser_window_focus", ts=t, window_id=window_id, focused=focused
+    )
 
 
 def idle(t: str, state: str):

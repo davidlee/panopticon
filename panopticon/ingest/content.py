@@ -103,7 +103,9 @@ def quality_score(
     return max(0.0, min(1.0, score))
 
 
-def _penalise_low_text_link_ratio(score: float, html: str, text_len: int) -> float:
+def _penalise_low_text_link_ratio(
+    score: float, html: str, text_len: int
+) -> float:
     """Reduce score if the text/link ratio suggests a link farm."""
     from lxml import html as lxml_html
 
@@ -252,3 +254,4 @@ def _index_has_hash(path: Path, ch: str) -> bool:
             if target in line:
                 return True
     return False
+

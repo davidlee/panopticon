@@ -90,7 +90,9 @@ class Env:
     config: Path
     transport: FakeTransport
 
-    def run(self, *, limit: int | None = None, dry_run: bool = False, key: str | None = KEY) -> int:
+    def run(
+        self, *, limit: int | None = None, dry_run: bool = False, key: str | None = KEY
+    ) -> int:
         return run(
             self.root,
             self.config,

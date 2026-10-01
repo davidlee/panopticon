@@ -38,7 +38,9 @@ LOCK_NAME = "git-poller.lock"
 # reach the feed.  `tempfile.gettempdir()` folds in $TMPDIR; /tmp and /var/tmp
 # always count.  `discover_repos(temp_roots=...)` overrides this (tests pass ()).
 TEMP_ROOTS: tuple[Path, ...] = tuple(
-    dict.fromkeys(Path(p).resolve() for p in (tempfile.gettempdir(), "/tmp", "/var/tmp"))
+    dict.fromkeys(
+        Path(p).resolve() for p in (tempfile.gettempdir(), "/tmp", "/var/tmp")
+    )
 )
 
 
@@ -63,16 +65,15 @@ def _git_ok(repo: Path, *args: str) -> str | None:
     if res.returncode != 0:
         log.debug(
             "git %s in %s exited %d: %s",
-            " ".join(args),
-            repo,
-            res.returncode,
-            res.stderr.strip(),
+            " ".join(args), repo, res.returncode, res.stderr.strip(),
         )
         return None
     return res.stdout.strip()
 
 
-def discover_repos(dev_root: Path, *, temp_roots: tuple[Path, ...] | None = None) -> list[Path]:
+def discover_repos(
+    dev_root: Path, *, temp_roots: tuple[Path, ...] | None = None
+) -> list[Path]:
     """Return the toplevel path of each non-bare git work tree directly under
     ``dev_root``.
 
@@ -121,7 +122,9 @@ def enumerate_candidates(repo: Path, since: str) -> list[Candidate]:
     currently checked out; it deliberately excludes remote-tracking refs, which
     the push hook never saw.
     """
-    out = _git_ok(repo, "log", "--branches", f"--since={since}", "--pretty=format:%H %h %cI")
+    out = _git_ok(
+        repo, "log", "--branches", f"--since={since}", "--pretty=format:%H %h %cI"
+    )
     return parse_candidates(out) if out else []
 
 
@@ -141,7 +144,9 @@ def commit_fields(repo: Path, full_sha: str) -> tuple[str, str]:
 
 def commit_files_changed(repo: Path, full_sha: str) -> int:
     """Count changed paths exactly as the hook does (``--root``; merges → 0)."""
-    out = _git_ok(repo, "diff-tree", "--no-commit-id", "--name-only", "-r", "--root", full_sha)
+    out = _git_ok(
+        repo, "diff-tree", "--no-commit-id", "--name-only", "-r", "--root", full_sha
+    )
     if not out:
         return 0
     return sum(1 for line in out.splitlines() if line)

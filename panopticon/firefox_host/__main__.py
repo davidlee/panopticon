@@ -143,12 +143,8 @@ def _handle_content_extracted(
         extractor="readability",
     )
     if entry:
-        log.info(
-            "content stored: hash=%s url=%s quality=%s",
-            entry["content_hash"][:12],
-            url,
-            entry["quality_score"],
-        )
+        log.info("content stored: hash=%s url=%s quality=%s",
+                 entry["content_hash"][:12], url, entry["quality_score"])
     else:
         log.debug("content duplicate: %s", url)
 

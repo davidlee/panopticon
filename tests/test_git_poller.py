@@ -37,7 +37,9 @@ def _fixtures_are_never_throwaway(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def _run(args: list[str], cwd: Path, env: dict | None = None) -> str:
-    res = subprocess.run(args, cwd=cwd, env=env, check=True, capture_output=True, text=True)
+    res = subprocess.run(
+        args, cwd=cwd, env=env, check=True, capture_output=True, text=True
+    )
     return res.stdout
 
 
@@ -182,21 +184,14 @@ def test_poll_skips_preseeded_sha(tmp_path: Path) -> None:
     seg = state / "segments" / f"git-{cI[:10]}.jsonl"
     seg.parent.mkdir(parents=True)
     seg.write_text(
-        segment_line(
-            repo=top,
-            slug="proj",
-            remote="",
-            sha=sha,
-            subject="preseed",
-            author="someone-else",
-            files_changed=9,
-            ts=cI,
-        )
-        + "\n"
+        segment_line(repo=top, slug="proj", remote="", sha=sha, subject="preseed",
+                     author="someone-else", files_changed=9, ts=cI) + "\n"
     )
 
     assert poll(dev, state, since="50.years") == 0  # sha already present
-    assert seg_lines(state) == Counter(ln for ln in seg.read_text().splitlines() if ln.strip())
+    assert seg_lines(state) == Counter(
+        ln for ln in seg.read_text().splitlines() if ln.strip()
+    )
 
 
 def test_poll_two_repos_same_day_dedup_is_stable(tmp_path: Path) -> None:

@@ -103,7 +103,9 @@ def _clip(fields: dict[str, Any], day: str) -> tuple[datetime, datetime]:
     return max(start, day_start), min(end, day_end)
 
 
-def _accumulate_hourly(per_hour: list[float], clip_start: datetime, clip_end: datetime) -> None:
+def _accumulate_hourly(
+    per_hour: list[float], clip_start: datetime, clip_end: datetime
+) -> None:
     cur = clip_start
     while cur < clip_end:
         next_hour = cur.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)

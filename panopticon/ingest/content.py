@@ -5,7 +5,7 @@ Layout::
   ~/.local/state/behaviour/content/
     articles.jsonl           — index (one JSON object per line)
     <sha256[:2]>/
-      <sha256>.json          — raw extraction (Readability or Trafilatura output)
+      <sha256>.json          — raw extraction (Readability output)
       <sha256>.md            — Markdown conversion
 
 The index maps content hashes to metadata. Content is de-duplicated by

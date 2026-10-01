@@ -74,7 +74,7 @@ Planned producers: ghostty/zsh shell hook, emacs, idle/lock watcher.
 └── content/
     ├── articles.jsonl                index: one JSON object per extracted article
     └── <hash[:2]>/
-        ├── <hash>.json               raw Readability / Trafilatura output
+        ├── <hash>.json               raw Readability output
         └── <hash>.md                 Markdown with YAML frontmatter
 
 **content/ is not yet retention-managed** — the index and article
@@ -167,15 +167,9 @@ tail -f ~/.local/state/behaviour/raw/firefox-$(date +%Y-%m-%d).jsonl
 
 ### Content extraction
 
-The Firefox extension extracts page content on 30 s dwell or right-click.
-Two-stage design:
-
-1. **Browser-side:** Mozilla Readability runs on a cloned DOM, produces
-   cleaned article HTML + text.
-2. **Local fallback:** Trafilatura fetches and extracts URLs not captured
-   in-browser (batch backfill, non-browser sources).
-   **Not yet wired —** the module is implemented and tested but has no
-   CLI entrypoint or daemon; currently dead code.
+The Firefox extension extracts page content on 30 s dwell or right-click:
+Mozilla Readability runs on a cloned DOM and produces cleaned article HTML +
+text. Pages are only ever captured in-browser; nothing is fetched.
 
 Watch content flow in:
 

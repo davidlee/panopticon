@@ -30,7 +30,7 @@
         pyproject = true;
         src = ./.;
         build-system = with pkgs.python3Packages; [hatchling];
-        dependencies = with pkgs.python3Packages; [i3ipc lxml markdownify trafilatura];
+        dependencies = with pkgs.python3Packages; [i3ipc lxml markdownify];
         # git: the git-poller suite (tests/test_git_poller.py) shells out to a
         # real git binary — the sandbox has none unless we add it here.
         nativeCheckInputs =
@@ -51,7 +51,6 @@
             pytest-asyncio
             lxml
             markdownify
-            trafilatura
           ]))
         web-ext
         ruff

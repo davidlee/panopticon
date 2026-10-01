@@ -170,3 +170,24 @@ messages, account settings, checkout.
 Advice for the user's own `deny` (not committed as config): the employer's
 domain and code-host org. Simulated, the two entries hold back a further 31
 pages (pass 1454 → 1423).
+
+## PHASE-04 live acceptance (2026-10-02)
+
+VH-1 / OQ-1: `openai/gpt-4.1-mini` as the baseline model, run with
+`--limit 3`. Exit 0, ~4 s per page. All 3 pages digested; no failure
+markers and no provider failures. Strict `json_schema` was honoured under
+`require_parameters` and `allow_fallbacks: false`. Summaries and claims
+were accurate and stuck to the page; one small entity slip (wrong vendor
+on a product name). The user accepted the baseline.
+
+Findings:
+- **Compose gap.** One of the 3 pages was a LinkedIn compose surface (the
+  user's own unpublished post), and it passed the gate. `DEFAULT_DENY` gains
+  6 compose/editor path entries (LinkedIn sharing and article editor,
+  x.com compose, reddit submit, medium new-story). Known limit: path prefix
+  only, so per-subreddit `/r/<sub>/submit` and per-host editors (Mastodon,
+  Substack) are not covered; the user's `deny` covers them if needed.
+- **Entity `type` is free text** and drifts (`software` vs `project`,
+  invented types). Deferred to IMP-002, alongside stage-2 triage. The model-flag audit loop is IDE-004.
+- **Cost** at ~$0.40/M input (unverified list price): the ~3.8M-token backlog
+  costs about $1.50 plus output; daily volume is negligible.

@@ -91,6 +91,9 @@ DEFAULT_DENY: frozenset[str] = frozenset(
         "linkedin.com/messaging", "x.com/messages", "x.com/i/chat", "facebook.com/messages",
         "instagram.com/direct", "reddit.com/message", "reddit.com/chat",
         "github.com/settings", "amazon.com/checkout", "amazon.com.au/checkout",
+        # compose / editor surfaces: the user's own unpublished writing
+        "linkedin.com/sharing", "linkedin.com/article/new", "linkedin.com/article/edit",
+        "x.com/compose", "reddit.com/submit", "medium.com/new-story",
     }
 )  # fmt: skip
 

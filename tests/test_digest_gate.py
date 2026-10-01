@@ -262,6 +262,20 @@ def test_default_deny_covers_private_paths_on_public_hosts(url: str):
     assert verdict(url) == Reject(Reason.DENIED_DOMAIN)
 
 
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://www.linkedin.com/sharing/compose",
+        "https://www.linkedin.com/article/edit/1/",
+        "https://x.com/compose/post",
+        "https://www.reddit.com/submit?type=TEXT",
+        "https://medium.com/new-story",
+    ],
+)
+def test_default_deny_covers_compose_surfaces(url: str):
+    assert verdict(url) == Reject(Reason.DENIED_DOMAIN)
+
+
 def test_default_deny_leaves_the_public_paths_of_those_hosts():
     assert verdict("https://github.com/rust-lang/rust") == Pass("github.com")
 

@@ -52,7 +52,8 @@ Decisions made within the design (none change what leaves the host):
 - An empty `allow = []` is accepted and passes nothing (fail-closed).
 - `pending` is total: a row with a non-str url/content_hash, a non-numeric
   quality, or an unparseable or naive `captured_at` gets the new reason
-  `bad_row`, sorted last. The corpus has none today (aggregate: 2462 rows, all
+  `bad_row`, sorted last. The user confirmed this on 2026-10-01, and design
+  §5.2 is amended to match. The corpus has none today (aggregate: 2462 rows, all
   well-typed; 36 `Z` and 2426 numeric offsets; 8 `None` titles).
 - `pending` precedence per row: `bad_row` → `superseded` → `done` → gate. Ties
   on `captured_at` go to the later index row. It returns every row judged,

@@ -205,8 +205,10 @@ max_output_tokens = 1500
 
 **Gate**: `gate(url, quality, length | None, cfg) -> Pass | Reject(reason)`.
 Reasons form an enum, so tests and dry-run output are stable. Rules are
-evaluated in table order. `pending` adds the two reasons that need the store:
-`superseded` (a newer SHA exists for the URL) and `done`.
+evaluated in table order. `pending` adds three reasons that need the whole
+index: `bad_row` (a malformed index row: non-string url or content_hash,
+non-numeric quality, or an unparseable or naive `captured_at`; user,
+2026-10-01), `superseded` (a newer SHA exists for the URL) and `done`.
 
 | reason          | rule                                                                      |
 |-----------------|---------------------------------------------------------------------------|
@@ -595,7 +597,7 @@ healthy.**
   - the defaults apply when `deny` is omitted.
 - `pending`:
   - a latest row that is gated or done means no fallback;
-  - `superseded` and `done` reasons;
+  - `bad_row`, `superseded` and `done` reasons;
   - mixed tz offsets and `Z` suffixes;
   - newest-first ordering.
 - `build_request`:

@@ -27,7 +27,7 @@ sign-extension:
 # Exit 0 = downloaded, 2 = still pending, 1 = rejected/unknown. Same credentials.
 # Are we there yet? Check a submitted version (default: manifest's); fetch the .xpi once signed.
 fetch-extension version="":
-    uv run python -m panopticon.amo {{ext}}/manifest.json {{version}}
+    uv run python -m tools.amo {{ext}}/manifest.json {{version}}
 
 install-manifest:
     panopticon-firefox-host install-manifest

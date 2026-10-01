@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from panopticon.amo import (
+from tools.amo import (
     EXIT_FAILED,
     EXIT_PENDING,
     EXIT_READY,

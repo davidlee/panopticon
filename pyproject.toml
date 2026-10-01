@@ -33,6 +33,7 @@ packages = ["panopticon"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["."]
 asyncio_mode = "auto"
 
 [tool.ruff]

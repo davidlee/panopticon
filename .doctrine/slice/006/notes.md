@@ -35,3 +35,49 @@ disposable phase sheet (`.doctrine/state/.../phase-NN.md`) that must survive
   (trafilatura would have evaded it — removed anyway).
 - `uv lock` works in the jail. The repo is not ruff-formatted and `just check`
   has no format gate; format new files only.
+
+## PHASE-02 pure core (2026-10-01)
+
+Modules: `panopticon/digest/{gate,config,select,prompt}.py`. Dependency
+direction: `config → gate`, `prompt → config`, `select → gate`.
+
+Decisions made within the design (none change what leaves the host):
+- `GateConfig` lives in `gate.py` (the gate owns its policy type; config only
+  builds it). `Pass(host)` carries the normalised host, the one I1 allows out.
+- `normalise_host` is stricter than the design text: labels must match
+  `[a-z0-9_-]+`, or the whole host must be an IP literal. Without this, a deny
+  entry like `https://bank.com` or `bank.com/x` would normalise and silently
+  never match. Weird URL hosts become `bad_url`, which is fail-closed.
+- `local_host` also covers `*.localhost` (RFC 6761 loopback).
+- An empty `allow = []` is accepted and passes nothing (fail-closed).
+- `pending` is total: a row with a non-str url/content_hash, a non-numeric
+  quality, or an unparseable or naive `captured_at` gets the new reason
+  `bad_row`, sorted last. The corpus has none today (aggregate: 2462 rows, all
+  well-typed; 36 `Z` and 2426 numeric offsets; 8 `None` titles).
+- `pending` precedence per row: `bad_row` → `superseded` → `done` → gate. Ties
+  on `captured_at` go to the later index row. It returns every row judged,
+  newest first; candidates are the `Pass` rows, and the shell re-calls `gate`
+  with the length to apply `too_short`.
+- Config defaults: `enabled = false`, `max_pages_per_run = 50`; `[gate]`
+  optional; `[digest]` required (for `model`); `endpoint` and `api_key_env`
+  default to the design-example OpenRouter values. `ConfigError` messages name
+  the key, never the value.
+- `Page(host, title, text)` has no URL field, so I1 holds by type. The host,
+  title and text all sit inside `<page>…</page>`. `_defang` breaks any
+  `<page`/`</page` (any case, inner whitespace) in the title or text by
+  appending `_`. `input_chars` counts the truncated text before defanging.
+- `parse_digest(bytes)`: an `error` key counts only when it is non-null.
+  `content` that is null or non-str gives `not_json`, not `provider_error`.
+  `RecursionError` from deep nesting is caught. `PROMPT_VERSION = "1"`.
+- Purity (EX-1): `tests/test_digest_purity.py` is an AST tripwire over the four
+  modules. It flags impure imports, `.now()/.today()/.utcnow()` calls, and
+  bare `open`, `input` and `print`. It shares `tests/ast_imports.py` with
+  the I2 tripwire.
+
+For PHASE-03:
+- `Reason` holds the gate reasons plus `bad_row`, `superseded` and `done`, so
+  dry-run can print one enum.
+- The record needs `host` (from `Pass`), `input_chars` and `input_truncated`
+  (from `Request`), plus the `Digest` fields. `Failure.kind` feeds the D13/D14
+  content-vs-provider split: `provider_error` is a provider failure, and every
+  other kind is a content failure.

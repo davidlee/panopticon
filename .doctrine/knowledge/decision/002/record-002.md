@@ -1,0 +1,1 @@
+Origin: `github.com:davidlee/satan.IDE-001`, where placement was discussed on 2026-10-01. Governs IDE-002.

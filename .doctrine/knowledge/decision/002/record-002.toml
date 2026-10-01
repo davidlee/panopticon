@@ -1,0 +1,29 @@
+schema = "doctrine.knowledge"
+version = 1
+
+id = 2
+slug = "digest-egress-exception"
+title = "Relax no-network invariant for a single opt-in egress: panopticon-digest"
+record_kind = "decision"
+status = "accepted"
+created = "2026-10-01"
+updated = "2026-10-01"
+tags = ["content", "digest", "network", "privacy"]
+
+[facet]                         # every field typed; seeded empty (captured later)
+context = "README states 'Nothing leaves the machine' and 'All data local. No network calls.' A page digest (IDE-002) needs remote models: no local inference is set up on the host."
+choice = "Permit exactly one network egress: panopticon-digest. It is a separate binary with its own unit and timer; off by default; page text passes a local deterministic gate (domain denylist) before it leaves, and goes only to allowlisted providers: OpenRouter for digests; candidates Voyage AI (embeddings) and jev/typesafe.ai (triage classification), each pending a retention check. Every capture path stays network-free."
+alternatives = ["A standalone digest project reading panopticon's content store", "Local-model digests only", "No digest layer"]
+rationale = "panopticon already owns the content store and its retention (RSK-001); a digest is a derived batch layer like segmentize. A separate project would couple to panopticon's private store layout across repos and would be a new side project for a text-in/text-out job. Local inference is not available."
+consequences = ["README and docs/privacy.md must restate the invariant as: capture never touches the network; panopticon-digest is the sole opt-in egress", "The local gate (domain denylist + size cap) runs before any provider sees text", "Provider/model choice is config and the allowlist is the user's; each provider's retention terms are checked before it joins", "Digest retention follows content-store retention (RSK-001)"]
+decided_by = "user (session 2026-10-01, reply: 'yeah, seems better than spawning another project')"
+decided_on = "2026-10-01"
+
+[evidence]                      # free-text citations (supports / contradicts / notes)
+supports    = []
+contradicts = []
+notes       = []
+
+[relationships]                 # verb-written edges (set by doctrine supersede)
+supersedes    = []   # record ids this one replaces (set by doctrine supersede)
+superseded_by = []   # set on superseded predecessor (verb-written)

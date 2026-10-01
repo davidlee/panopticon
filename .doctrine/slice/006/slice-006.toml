@@ -1,7 +1,7 @@
 id = 6
 slug = "page-digest"
 title = "panopticon-digest: opt-in page digest over the content store"
-status = "plan"
+status = "done"
 created = "2026-10-01"
 updated = "2026-10-01"
 tags = []

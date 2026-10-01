@@ -10,10 +10,10 @@ import pytest
 from panopticon.digest.config import ProviderConfig
 from panopticon.digest.prompt import (
     DIGEST_SCHEMA,
+    ENTITY_LIMIT,
     PROMPT_VERSION,
     Digest,
     Entity,
-    ENTITY_LIMIT,
     EntityType,
     Failure,
     FailureKind,

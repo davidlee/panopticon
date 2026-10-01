@@ -7,8 +7,10 @@ and daily histograms. Consumers (e.g.
 [SATAN](https://github.com/davidlee/emacs-config/tree/main/satan)) read the derived
 data for aggregation, search, and self-reflection on digital habits.
 
-Everything stays on disk at `~/.local/state/behaviour/`. Nothing
-leaves the machine.
+Everything stays on disk at `~/.local/state/behaviour/`. Capture never
+touches the network. The one exception is `panopticon-digest`, an opt-in,
+off-by-default batch job that sends gated page text to an LLM provider you
+choose (see [Page digest](#page-digest-opt-in-egress)).
 
 ## Architecture
 
@@ -40,6 +42,11 @@ leaves the machine.
           ▼
      content/  (articles.jsonl + markdown)
      (no retention yet — follow up)
+          │
+   panopticon-digest  (opt-in, daily; the only network egress)
+          │  local gate → LLM provider
+          ▼
+     digest/  (per-SHA records)
 ```
 
 ## Components
@@ -50,6 +57,7 @@ leaves the machine.
 | `panopticon-firefox-host` | Native messaging host for the Firefox WebExtension. Receives browser attention events, re-validates and writes JSONL. Routes content extraction to the content store. |
 | `panopticon-segmentize` | Nightly batch. Derives `focus_segment` and `browser_tab_segment` events, computes daily histograms, enforces retention. |
 | `panopticon-git` | Host-side git-commit poller (5-min timer). Scans `~/dev/*`, appends one segment per new commit straight to `segments/git-YYYY-MM-DD.jsonl`. Byte-compatible with the SATAN `post-commit` hook, but env-agnostic so it also captures commits made inside bwrap jails (where the hook never fires). |
+| `panopticon-digest` | Opt-in batch job, **off by default**, and the only component that uses the network. Gates content-store pages locally, then asks an LLM provider for a structured digest (summary, claims, entities) of each page that passes. See [Page digest](#page-digest-opt-in-egress). |
 
 The Firefox WebExtension lives in `firefox-extension/`. See its
 [README](firefox-extension/README.md) for install instructions.
@@ -76,6 +84,10 @@ Planned producers: ghostty/zsh shell hook, emacs, idle/lock watcher.
     └── <hash[:2]>/
         ├── <hash>.json               raw Readability output
         └── <hash>.md                 Markdown with YAML frontmatter
+└── digest/                           only if panopticon-digest is enabled
+    └── <hash[:2]>/
+        ├── <hash>.digest.json        digest record, keyed by content hash
+        └── <hash>.digest.fail.json   content-failure marker (not retried)
 
 **content/ is not yet retention-managed** — the index and article
 files accumulate indefinitely. Retention is tracked as follow-up work.
@@ -116,7 +128,8 @@ See [`docs/schema.md`](docs/schema.md) for the full reference and
   `data:`, etc.) dropped at both extension and host.
 - Redaction applied twice (extension → host) so a buggy extension
   cannot bypass the policy.
-- All data local. No network calls.
+- All data local. Capture makes no network calls. The only egress is the
+  opt-in `panopticon-digest` (below).
 
 ### Content extraction
 
@@ -183,6 +196,68 @@ For a specific article's Markdown:
 # find the hash from articles.jsonl, then:
 cat ~/.local/state/behaviour/content/<hash[:2]>/<hash>.md
 ```
+
+### Page digest (opt-in egress)
+
+`panopticon-digest` is the sole network egress (DEC-002). It is a separate
+binary with its own unit and timer, shipped disabled; capture never uses the
+network. Without a config file it does nothing.
+
+For each page in the content store it applies a local, deterministic gate
+first: a domain denylist (a built-in list of mail, banking, chat, AI-chat,
+office, auth, search and government hosts, plus yours), an optional allowlist
+that only narrows, local/intranet hosts, minimum quality and minimum length.
+No model decides whether text may reach a model. For a page that passes,
+exactly three things are sent: the host, the title, and the extracted text
+truncated to `max_input_chars`. The URL path, query and the page's links are
+never sent. See [`docs/privacy.md`](docs/privacy.md#page-digest-the-only-egress).
+
+Config, at `$XDG_CONFIG_HOME/panopticon/digest.toml` (unknown keys are an
+error, so a typo cannot drop the denylist):
+
+```toml
+enabled = true
+max_pages_per_run = 50
+
+[gate]
+deny = ["mybank.example"]    # added to the built-in denylist
+# allow = ["lwn.net"]        # optional; when set, only these hosts pass
+min_chars = 1500
+min_quality = 0.7
+
+[digest]
+endpoint = "https://openrouter.ai/api/v1/chat/completions"
+model = "<provider/model>"   # required; must support strict json_schema
+api_key_env = "OPENROUTER_API_KEY"
+max_input_chars = 24000
+max_output_tokens = 1500
+```
+
+The API key comes only from the environment variable named by `api_key_env`;
+the config refuses a literal key. Preview before enabling — a dry run ignores
+`enabled` and the key, makes no network call and writes nothing:
+
+```sh
+panopticon-digest --dry-run          # verdict per page, then counts
+panopticon-digest --limit 3 -v       # a small live run
+```
+
+To run it daily:
+
+```sh
+# the unit reads the key from this fixed path; systemd cannot
+# honour XDG_CONFIG_HOME here
+echo 'OPENROUTER_API_KEY=…' > ~/.config/panopticon/digest.env
+chmod 600 ~/.config/panopticon/digest.env
+# install systemd/digest.{service,timer} as user units (copy into
+# ~/.config/systemd/user/, or wire them via home-manager), then:
+systemctl --user enable --now digest.timer
+```
+
+Records land in `digest/<hash[:2]>/<hash>.digest.json`, keyed by content
+hash, so an unchanged page is never sent twice. **Digests are untrusted
+derived text**: model output about third-party pages. Consumers must treat
+them as data, never as instructions.
 
 ### Run the segmentizer
 

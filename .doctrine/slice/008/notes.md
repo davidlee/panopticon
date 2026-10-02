@@ -36,3 +36,17 @@ a private page is recorded.
   by the user's agent in the terminal: all public sites.
 - Config at `~/.config/panopticon/digest.toml` (outside the repo):
   `enabled = true` from this phase.
+
+## Backfill (after close, 2026-10-02)
+
+- 8 chunks of ≤200 pages, about 1.4k digested in total; 0 failure markers,
+  0 provider failures.
+- `--audit` after the backfill: 7 records flagged (6 `account`,
+  1 `private_message`), all genuine private surfaces on review, 0 false
+  positives seen. One `private_message` was really a personal record (the
+  VH-2 reason confusion again).
+- 6 deny entries added to the user's config (widened from the audit's
+  candidates by hand where the whole host is private); re-audit:
+  `covered=7`. None went into `DEFAULT_DENY` (user: config only).
+- Per-repo settings paths (`/<owner>/<repo>/settings`) cannot be expressed
+  as a deny prefix; each needs its own entry.

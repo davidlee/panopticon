@@ -5,7 +5,7 @@
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
     devshell.url = "github:numtide/devshell";
-    pub.url = "github:davidlee/nix-config?dir=flakes/pub";
+    agents.url = "github:davidlee/nix-config?dir=flakes/agents";
     doctrine.url = "github:davidlee/doctrine";
   };
 
@@ -14,7 +14,7 @@
     nixpkgs,
     flake-utils,
     devshell,
-    pub,
+    agents,
     doctrine,
   }:
     flake-utils.lib.eachDefaultSystem (system: let
@@ -59,7 +59,7 @@
         bun
       ];
 
-      agents = pub.lib.${system}.mkJailedAgents {};
+      jailLib = agents.lib.${system}.mkJailedAgents {};
 
       # Expose the host niri IPC socket to the jails so the compositor/niri
       # capture path (frames() -> $NIRI_SOCKET) can reach the live compositor,
@@ -69,37 +69,37 @@
       # $NIRI_SOCKET — the apiKeyPassThrough runtime-forward pattern, not a
       # baked constant. Unset on the host -> empty setenv + /dev/null no-op
       # bind, and the watcher backs off (compositor_disconnected) as designed.
-      niriOptions = with agents.combinators; [
+      niriOptions = with jailLib.combinators; [
         (unsafe-add-raw-args "--setenv NIRI_SOCKET \"\${NIRI_SOCKET:-}\"")
         (unsafe-add-raw-args "--bind-try \"\${NIRI_SOCKET:-/dev/null}\" \"\${NIRI_SOCKET:-/dev/null}\"")
       ];
 
       jailPkgs = {
-        jailed-pi = agents.makeJailedPi {
+        jailed-pi = jailLib.makeJailedPi {
           profile = "specDev";
           extraPkgs = projectPkgs;
           extraOptions = niriOptions;
           allowSelfAsSubagent = true;
           maxSubagentDepth = 2;
         };
-        jailed-claude = agents.makeJailedClaude {
+        jailed-claude = jailLib.makeJailedClaude {
           profile = "specDev";
           extraPkgs = projectPkgs;
           extraOptions = niriOptions;
         };
-        jailed-codex = agents.makeJailedCodex {
+        jailed-codex = jailLib.makeJailedCodex {
           profile = "specDev";
           extraPkgs = projectPkgs;
           extraOptions = niriOptions;
         };
-        jailed-opencode = agents.makeJailedOpencode {
+        jailed-opencode = jailLib.makeJailedOpencode {
           profile = "specDev";
           extraPkgs = projectPkgs;
           extraOptions = niriOptions;
         };
-        claude = agents.agentsByName.claude;
-        codex = agents.agentsByName.codex;
-        jailed-shell = agents.makeJailedAgent {
+        claude = jailLib.agentsByName.claude;
+        codex = jailLib.agentsByName.codex;
+        jailed-shell = jailLib.makeJailedAgent {
           name = "shell";
           agent = pkgs.zsh;
           profile = "specDev";

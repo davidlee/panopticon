@@ -74,6 +74,11 @@
         (unsafe-add-raw-args "--bind-try \"\${NIRI_SOCKET:-/dev/null}\" \"\${NIRI_SOCKET:-/dev/null}\"")
       ];
 
+      # Every jail reaches models through the local LLM gateway with the
+      # shared `pi` key (~/.config/llm-gateway/keys/pi); no provider key
+      # enters a jail.
+      gateway = jailLib.gatewayClient "pi";
+
       jailPkgs = {
         jailed-pi = jailLib.makeJailedPi {
           profile = "specDev";
@@ -81,21 +86,19 @@
           extraOptions = niriOptions;
           allowSelfAsSubagent = true;
           maxSubagentDepth = 2;
+          inherit gateway;
         };
         jailed-claude = jailLib.makeJailedClaude {
           profile = "specDev";
           extraPkgs = projectPkgs;
           extraOptions = niriOptions;
+          inherit gateway;
         };
         jailed-codex = jailLib.makeJailedCodex {
           profile = "specDev";
           extraPkgs = projectPkgs;
           extraOptions = niriOptions;
-        };
-        jailed-opencode = jailLib.makeJailedOpencode {
-          profile = "specDev";
-          extraPkgs = projectPkgs;
-          extraOptions = niriOptions;
+          inherit gateway;
         };
         claude = jailLib.agentsByName.claude;
         codex = jailLib.agentsByName.codex;
@@ -106,6 +109,7 @@
           extraPkgs = projectPkgs;
           extraOptions = niriOptions;
           subagents = ["pi" "claude"];
+          inherit gateway;
         };
       };
     in {

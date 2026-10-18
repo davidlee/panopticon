@@ -55,7 +55,6 @@
         web-ext
         ruff
         uv
-        doctrine-pkg
         just
         bun
       ];
@@ -121,10 +120,12 @@
           # is meaningless, so it takes the tool set and builds its own
           # confinement around it. One list, so the VM and this devshell cannot
           # drift. `jailPkgs` is deliberately not in here — those are the
-          # wrappers, not the tools.
+          # wrappers, not the tools. doctrine is the one addition: the
+          # devshell and jails use the host's cargo install (agents'
+          # hostDoctrine), which a VM does not have.
           dev-tools = pkgs.buildEnv {
             name = "panopticon-dev-tools";
-            paths = projectPkgs;
+            paths = projectPkgs ++ [doctrine-pkg];
             ignoreCollisions = true;
           };
         }

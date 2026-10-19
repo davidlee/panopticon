@@ -1,219 +1,235 @@
-# panopticon
+# Panopticon
 
-Local desktop-behaviour capture for Linux (Wayland compositors — Sway and
-Niri, auto-detected). Producers emit
-normalized JSONL events; a batch segmentizer derives attention spans
-and daily histograms. Consumers (e.g.
-[SATAN](https://github.com/davidlee/emacs-config/tree/main/satan)) read the derived
-data for aggregation, search, and self-reflection on digital habits.
+A local record of what I have been doing and reading, so
+[SATAN](https://github.com/davidlee/SATAN) has something concrete to notice:
+which applications held my attention, which pages I spent time on, what those
+pages said, and what I committed to my projects.
 
-Everything stays on disk at `~/.local/state/behaviour/`. Capture never
-touches the network. The one exception is `panopticon-digest`, an opt-in,
-off-by-default batch job that sends gated page text to an LLM provider you
-choose (see [Page digest](#page-digest-opt-in-egress)).
+Panopticon captures desktop and Firefox activity, stores readable page
+content, and derives attention spans and daily summaries. SATAN reads those
+files through its tools; it supplies the interpretation and conversation.
+Panopticon runs independently of SATAN and Emacs.
 
-## Architecture
+![eyes](./panopticon.jpg)
 
+Capture stays local under `$XDG_STATE_HOME/behaviour/` (default
+`~/.local/state/behaviour/`). The optional `panopticon-digest` batch job can
+send selected page text to an LLM provider for summaries. It is disabled by
+default and has its own local gate, configuration and timer.
+
+## What it sees
+
+| Source | Captured information | What it gives SATAN |
+|---|---|---|
+| Desktop: Sway, Niri or Umbriel | Window focus, application, title, workspace and output, through compositor IPC | Current focus and time spent in applications |
+| Firefox attention | Active tabs, redacted URLs, titles, navigation, browser focus and idle signals | Recent browser attention and time by domain |
+| Firefox page content | Mozilla Readability extraction after 30 seconds of dwell or an explicit right-click action | Searchable text of pages I visited |
+| Local Git repositories | Commits across local branches under `~/dev/*`, polled from the host | Project activity, including commits made inside jails |
+| Optional page digest | Summary, claims, entities and an advisory privacy classification | A compact account of captured reading |
+
+These are activity signals, not proof of reading or understanding. Desktop
+focus and browser attention are derived separately; the segmentizer does not
+currently intersect browser spans with compositor focus spans.
+
+## How it fits together
+
+```text
+ Sway / Niri / Umbriel
+          │
+ panopticon-desktop ──┬──▶ raw/desktop-*
+                     └──▶ current/desktop.json
+
+ Firefox extension (attention + Readability)
+          │
+ panopticon-firefox-host ──┬──▶ raw/firefox-*
+                          └──▶ content/ (JSON + Markdown)
+
+ raw/ ──▶ panopticon-segmentize ──┬──▶ segments/focus-* + browser-*
+                                 └──▶ histograms/daily-*
+
+ local Git repos ──▶ panopticon-git ──▶ segments/git-*
+
+ content/ ──▶ panopticon-digest (optional)
+                 local gate → LLM provider ──▶ digest/
+
+ SATAN reads activity, content and digests from these local files.
 ```
- sway | niri ipc     firefox extension          (future: ghostty,
- ─────────┐          ──────────────┐             emacs, idle)
-          │                        │                   │
-  panopticon-desktop   panopticon-firefox-host         │
-  (auto-detects the                │                   │
-   live compositor)                │                   │
-          │                        │                   │
-          └──────────┬─────────────┴───────────────────┘
-                     ▼
-          raw/  (per-source, per-day JSONL)
-                     │
-          panopticon-segmentize  (nightly batch)
-                     │
-          ┌──────────┼──────────┐
-          ▼          ▼          ▼
-     segments/   histograms/  current/
-     (90 d)      (forever)    (atomic snapshot)
 
-   firefox extension (right-click or 30 s dwell)
-          │
-   Readability.js  (in-browser DOM extraction)
-          │
-   panopticon-firefox-host
-          │
-          ▼
-     content/  (articles.jsonl + markdown)
-     (no retention yet — follow up)
-          │
-   panopticon-digest  (opt-in, daily; the only network egress)
-          │  local gate → LLM provider
-          ▼
-     digest/  (per-SHA records)
-```
+The desktop watcher reconnects with exponential backoff. Its adapters emit
+one normalized `desktop` stream, retaining `producer` to distinguish the
+compositor. Auto-detection probes live sockets in the order Niri, Sway,
+Umbriel; `--compositor` overrides it. The executable `panopticon-sway` remains
+a Sway wrapper, and the deployed desktop service retains the name
+`panopticon-sway`.
 
-## Components
+The Firefox extension sends events through native messaging. The host
+re-validates and redacts them, appends attention events to `raw/`, and routes
+extracted page bodies straight to `content/`. It does not fetch pages: content
+comes from the page already open in Firefox.
 
-| Binary | What it does |
-|--------|-------------|
-| `panopticon-desktop` | Compositor IPC watcher daemon (Sway or Niri, auto-detected). Tracks window focus, titles, workspaces. Reconnects with exponential backoff. Override detection with `--compositor sway\|niri`. The systemd unit ships under the retained name `panopticon-sway` (a stable alias — it runs `panopticon-desktop`). |
-| `panopticon-firefox-host` | Native messaging host for the Firefox WebExtension. Receives browser attention events, re-validates and writes JSONL. Routes content extraction to the content store. |
-| `panopticon-segmentize` | Nightly batch. Derives `focus_segment` and `browser_tab_segment` events, computes daily histograms, enforces retention. |
-| `panopticon-git` | Host-side git-commit poller (5-min timer). Scans `~/dev/*`, appends one segment per new commit straight to `segments/git-YYYY-MM-DD.jsonl`. Byte-compatible with the SATAN `post-commit` hook, but env-agnostic so it also captures commits made inside bwrap jails (where the hook never fires). |
-| `panopticon-digest` | Opt-in batch job, **off by default**, and the only component that uses the network. Gates content-store pages locally, then asks an LLM provider for a structured digest (summary, claims, entities) of each page that passes. See [Page digest](#page-digest-opt-in-egress). |
+### How SATAN uses it
 
-The Firefox WebExtension lives in `firefox-extension/`. See its
-[README](firefox-extension/README.md) for install instructions.
+SATAN's Emacs tools provide read-only views:
 
-Planned producers: ghostty/zsh shell hook, emacs, idle/lock watcher.
+- **`activity_read`** exposes today's histogram, recent focus and browser
+  segments, and current desktop focus. Its current-focus reader replays the
+  raw desktop stream.
+- **`content_read`** lists recent captures, filters by domain or URL, searches
+  the Markdown projection, reads page text in chunks, and retrieves digests.
+  Recent, filter and search results include a digest summary when available.
+- Git segments feed SATAN's Git-activity perception; `vcs_log` can inspect a
+  repository when it needs more detail.
 
-## Storage layout
+The file boundary keeps capture independent of the agent harness. Malebolge
+currently reaches these SATAN tools through `satan-mcp` in Emacs. A consumer
+may pass retrieved data to its own model; that is separate from Panopticon's
+capture and digest boundaries.
 
-```
+### Freshness
+
+Raw desktop and browser events are written as they arrive; extracted content
+is available as soon as the native host stores it. Focus and browser segments
+and their histograms update when `panopticon-segmentize` runs. The shipped
+timer runs nightly at 03:30 with a randomized delay; run it manually for a
+same-day refresh. A stored histogram is therefore not a live view of today.
+
+`panopticon-git` writes directly to `segments/`, so a deployment polling every
+five minutes exposes commits without waiting for the nightly batch. Each poll
+scans local branches over a seven-day horizon by default and skips commits
+already present in the relevant day file. It needs no Git hook, fetch or push.
+
+## Storage and retention
+
+```text
 ~/.local/state/behaviour/
 ├── raw/
-│   ├── desktop-YYYY-MM-DD.jsonl      7-day TTL (only after segmented)
-│   └── firefox-YYYY-MM-DD.jsonl      7-day TTL (only after segmented)
-├── segments/
-│   ├── focus-YYYY-MM-DD.jsonl        90-day TTL
-│   ├── browser-YYYY-MM-DD.jsonl      90-day TTL
-│   └── git-YYYY-MM-DD.jsonl          90-day TTL (written direct, see below)
-├── histograms/
-│   └── daily-YYYY-MM-DD.json         kept forever
+│   ├── desktop-YYYY-MM-DD.jsonl
+│   └── firefox-YYYY-MM-DD.jsonl
 ├── current/
-│   └── desktop.json                  last-known compositor state
-└── content/
-    ├── articles.jsonl                index: one JSON object per extracted article
+│   └── desktop.json
+├── segments/
+│   ├── focus-YYYY-MM-DD.jsonl
+│   ├── browser-YYYY-MM-DD.jsonl
+│   └── git-YYYY-MM-DD.jsonl
+├── histograms/
+│   └── daily-YYYY-MM-DD.json
+├── content/
+│   ├── articles.jsonl
+│   └── <hash[:2]>/
+│       ├── <hash>.json
+│       └── <hash>.md
+└── digest/
     └── <hash[:2]>/
-        ├── <hash>.json               raw Readability output
-        └── <hash>.md                 Markdown with YAML frontmatter
-└── digest/                           only if panopticon-digest is enabled
-    └── <hash[:2]>/
-        ├── <hash>.digest.json        digest record, keyed by content hash
-        └── <hash>.digest.fail.json   content-failure marker (not retried)
-
-**content/ is not yet retention-managed** — the index and article
-files accumulate indefinitely. Retention is tracked as follow-up work.
+        ├── <hash>.digest.json
+        └── <hash>.digest.fail.json
 ```
 
-Writes use POSIX `O_APPEND` — line-atomic up to `PIPE_BUF` (4 KiB on
-Linux), so concurrent producers need no coordination. Retention is
-source-aware: raw files are deleted only after matching segments exist.
+| Tier | Retention |
+|---|---|
+| Raw events | Seven days; deletion requires a matching derived segment file |
+| Segments, including Git | 90 days |
+| Daily histograms | Kept indefinitely |
+| Extracted content and digests | No automatic retention yet |
 
-**Git is the freshness exception.** `panopticon-git` writes directly to
-`segments/` (not through `raw/ → segmentize`) so commits surface within a
-poll interval rather than next-day. Its line is a flat, hook-compatible
-object — `{repo, slug, remote, sha, subject, author, files_changed,
-start_ts, end_ts}` — not a schema-v1 `Event`. Dedup is stateless: each
-poll re-enumerates `git log --branches --since=7.days` and skips any
-`(repo, sha)` already present in the day-file, so the segment files are
-their own dedup state. During the transition the SATAN `post-commit` hook
-may co-write the same sha; the `(repo, sha)` dedup absorbs it. Retiring
-that hook is tracked in `.emacs.d` ISSUE-006 (step 2).
+Retention runs with the segmentizer. Raw events use append-only JSONL writes;
+current state, derived segments and histograms are replaced atomically.
 
-## Event schema
+Content is keyed by SHA-256 of extracted text. Identical text shares an index
+entry; changed text can produce a new hash even at the same URL. Each capture
+stores extraction JSON, a Markdown projection and metadata including a quality
+score. That score describes extraction quality, not whether a page is safe to
+send to a model.
 
-Every event is one JSON line:
+Desktop and Firefox attention events use the versioned schema, for example:
 
 ```json
-{"v": 1, "ts": "2026-05-27T09:15:03.412+10:00", "source": "desktop", "producer": "niri", "event": "window_focus", "window_id": 42, "app_id": "firefox", "workspace": "3", ...}
+{"v":1,"ts":"2026-10-19T09:15:03.412+11:00","source":"desktop","producer":"umbriel","event":"window_focus","window_id":42,"app_id":"firefox","workspace":"3"}
 ```
 
-See [`docs/schema.md`](docs/schema.md) for the full reference and
-[`docs/privacy.md`](docs/privacy.md) for what is and isn't captured.
+Git segments are a separate, flat format compatible with SATAN's original
+hook: repository, remote, commit, subject, author, changed-file count and
+timestamps. They are not schema-v1 events.
 
-## Privacy
+## Privacy boundaries
 
-- No keystrokes, clipboard, or screenshots.
-- URLs stripped to `scheme://host/path` (fragment and query removed, except
-  per-host identity params: HN `id`, YouTube `v`).
-- Incognito tabs and sensitive schemes (`about:`, `moz-extension:`,
-  `data:`, etc.) dropped at both extension and host.
-- Redaction applied twice (extension → host) so a buggy extension
-  cannot bypass the policy.
-- All data local. Capture makes no network calls. The only egress is the
-  opt-in `panopticon-digest` (below).
+- No keystrokes, clipboard, screenshots or terminal output are captured.
+- Desktop and browser titles are stored verbatim and may contain sensitive
+  text or paths. URL filtering does not sanitize titles or extracted bodies.
+- Firefox URLs retain the host and path. Queries and fragments are stripped,
+  except identity parameters such as Hacker News `id` and YouTube `v`.
+- Private Firefox tabs/windows and sensitive URL schemes are excluded by the
+  extension; the host also validates incoming events and re-applies URL
+  redaction. `file:` URLs are disabled by default.
+- **Page bodies are captured.** Readability runs on a cloned DOM after dwell
+  or explicit extraction; the host stores the extracted HTML and text locally.
+  The digest denylist governs outbound summarization, not local capture.
+- Capture, segmentation and Git polling make no network calls. The optional
+  digest job is the runtime pipeline's only network egress.
 
-### Content extraction
+The [schema reference](docs/schema.md), [privacy notes](docs/privacy.md) and
+[extension README](firefox-extension/README.md) contain further detail and
+installation instructions. Their older statements that Firefox never captures
+page bodies predate content extraction; the content path described here is
+implemented.
 
-The Firefox extension can extract the readable text of pages the user
-dwells on (30 s auto-trigger) or via right-click → "Extract page
-content for Panopticon". Extraction uses Mozilla Readability on a
-cloned DOM; the extracted HTML is converted to Markdown locally.
-Content is de-duplicated by SHA-256 hash — re-visiting a page does
-not create a new entry. A quality score (0–1) is computed for each
-extraction; consumers should treat scores below 0.3 as likely junk.
+## Run it
 
-Page content is stored in ``~/.local/state/behaviour/content/``
-alongside metadata (URL, title, domain, extractor, quality score).
-The raw extraction JSON is kept to allow re-conversion later without
-re-visiting the page.
-
-## Quick start
-
-### Install
+You need Linux with Sway, Niri or Umbriel for desktop capture, and Firefox with
+the extension for browser capture. The Python package requires Python 3.12+.
 
 ```sh
-# nix (recommended)
+# Nix package (all six entrypoints)
 nix build .#panopticon
 
-# or: local venv
-uv venv && uv pip install -e ".[dev]"
+# Or install into a local virtual environment
+uv venv
+uv pip install -e ".[dev]"
+source .venv/bin/activate
 ```
 
-### Run the desktop watcher
+### Desktop and Firefox
 
 ```sh
-panopticon-desktop -vv                 # auto-detects Sway or Niri
-# panopticon-desktop --compositor sway -vv   # force a specific adapter
-tail -f ~/.local/state/behaviour/raw/desktop-$(date +%Y-%m-%d).jsonl
-```
+panopticon-desktop -vv
+# Or select explicitly:
+# panopticon-desktop --compositor umbriel -vv
 
-### Run the firefox pipeline
-
-```sh
-# install native messaging host manifest
+# Install the Firefox native-messaging manifest
 panopticon-firefox-host install-manifest
-
-# load extension in Firefox:
-#   about:debugging → Load Temporary Add-on → firefox-extension/manifest.json
-
-tail -f ~/.local/state/behaviour/raw/firefox-$(date +%Y-%m-%d).jsonl
 ```
 
-### Content extraction
-
-The Firefox extension extracts page content on 30 s dwell or right-click:
-Mozilla Readability runs on a cloned DOM and produces cleaned article HTML +
-text. Pages are only ever captured in-browser; nothing is fetched.
-
-Watch content flow in:
+The watcher is a foreground daemon. Firefox starts its native host through
+the installed manifest; do not run the host interactively. Load
+`firefox-extension/manifest.json` through `about:debugging` for a temporary
+add-on. For permanent installation, see the extension README's signing steps
+(`just sign-extension` / `just fetch-extension`).
 
 ```sh
+# Inspect capture locally
+tail -f ~/.local/state/behaviour/raw/desktop-$(date +%F).jsonl
 tail -f ~/.local/state/behaviour/content/articles.jsonl
+
+# Refresh derived activity and poll Git once
+panopticon-segmentize -v
+panopticon-git -v
+
+jq '.per_app_seconds, .per_domain_seconds' \
+  ~/.local/state/behaviour/histograms/daily-$(date +%F).json
 ```
 
-For a specific article's Markdown:
-
-```sh
-# find the hash from articles.jsonl, then:
-cat ~/.local/state/behaviour/content/<hash[:2]>/<hash>.md
-```
+These commands use the default state path; adjust it if `XDG_STATE_HOME` is
+set. Use `--help` for per-command root overrides and logging options.
 
 ### Page digest (opt-in egress)
 
-`panopticon-digest` is the sole network egress (DEC-002). It is a separate
-binary with its own unit and timer, shipped disabled; capture never uses the
-network. Without a config file it does nothing.
+`panopticon-digest` is a separate batch job, disabled unless its config enables
+it. The local gate rejects built-in and user-denied domains or path prefixes,
+local/intranet hosts, low-quality extractions and short text. An optional
+allowlist only narrows the selection. The latest capture per URL is considered;
+already completed hashes are skipped.
 
-For each page in the content store it applies a local, deterministic gate
-first: a domain denylist (a built-in list of mail, banking, chat, AI-chat,
-office, auth, search and government hosts, plus yours), an optional allowlist
-that only narrows, local/intranet hosts, minimum quality and minimum length.
-No model decides whether text may reach a model. For a page that passes,
-exactly three things are sent: the host, the title, and the extracted text
-truncated to `max_input_chars`. The URL path, query and the page's links are
-never sent. See [`docs/privacy.md`](docs/privacy.md#page-digest-the-only-egress).
-
-Config, at `$XDG_CONFIG_HOME/panopticon/digest.toml` (unknown keys are an
-error, so a typo cannot drop the denylist):
+Create `$XDG_CONFIG_HOME/panopticon/digest.toml` (default
+`~/.config/panopticon/digest.toml`). Unknown keys are errors:
 
 ```toml
 enabled = true
@@ -221,9 +237,7 @@ max_pages_per_run = 50
 
 [gate]
 deny = ["mybank.example", "github.com/my-employer"]
-                             # added to the built-in denylist; a host, or
-                             # host/path to deny only under that path
-# allow = ["lwn.net"]        # optional; when set, only these hosts pass
+# allow = ["lwn.net"]
 min_chars = 1500
 min_quality = 0.7
 
@@ -235,87 +249,69 @@ max_input_chars = 24000
 max_output_tokens = 1500
 ```
 
-The API key comes only from the environment variable named by `api_key_env`;
-the config refuses a literal key. Preview before enabling — a dry run ignores
-`enabled` and the key, makes no network call and writes nothing:
+The key comes from the named environment variable; a literal key in config is
+refused. For a passing page, page-derived input is the host, title and text,
+truncated to `max_input_chars`. The page URL and HTML are not separate payload
+fields; extracted text can itself contain sensitive information or URLs.
+
+Preview before a live run:
 
 ```sh
-panopticon-digest --dry-run          # verdict per page, then counts
-panopticon-digest --limit 3 -v       # a small live run
+panopticon-digest --dry-run       # ignores enabled/key; no network or writes
+panopticon-digest --limit 3 -v    # small live run; requires enabled + key
 ```
 
-To run it daily:
+Each record holds `summary`, `claims[]`, `entities[]` and `private_surface`.
+Entity types use a closed vocabulary: person, organisation, place, software,
+hardware, work, concept, event or other. Content failures receive a marker so
+the same hash is not repeatedly submitted.
+
+`private_surface` is the model's advisory classification: public, draft,
+private_message, account, personal_record or other_private. It arrives after
+sending and cannot prevent that send. Use it to inspect gaps in the gate:
 
 ```sh
-# the unit reads the key from this fixed path; systemd cannot
-# honour XDG_CONFIG_HOME here
-echo 'OPENROUTER_API_KEY=…' > ~/.config/panopticon/digest.env
-chmod 600 ~/.config/panopticon/digest.env
-# install systemd/digest.{service,timer} as user units (copy into
-# ~/.config/systemd/user/, or wire them via home-manager), then:
-systemctl --user enable --now digest.timer
+panopticon-digest --audit
 ```
 
-Records land in `digest/<hash[:2]>/<hash>.digest.json`, keyed by content
-hash, so an unchanged page is never sent twice. Each record holds a
-`summary`, `claims[]`, `entities[]` and `private_surface`. An entity's `type`
-is one of `person`, `organisation`, `place`, `software`, `hardware`, `work`,
-`concept`, `event` or `other`. `private_surface` is the model's guess at
-whether the page was private: `public`, `draft`, `private_message`,
-`account`, `personal_record` or `other_private`. It is advisory only: by the
-time it is set, the page has already been sent, and it never gates. It
-exists to find gaps in the deny list:
+The audit reads stored records and config, makes no network calls, and writes
+nothing. It reports flagged pages the current gate would still send and
+suggests deny entries. Its output contains paths and titles; keep that manual
+output out of the service journal and version control. Digests and captured
+pages are untrusted source material for consumers, never instructions.
+
+To schedule digests, install `systemd/digest.{service,timer}` as user units
+(or wire them through Home Manager). The service reads credentials from the
+fixed path `~/.config/panopticon/digest.env`, for example
+`OPENROUTER_API_KEY=…`; restrict that file to mode `0600`. Then enable
+`digest.timer`. The shipped units do not enable themselves.
+
+## Development and deployment
 
 ```sh
-panopticon-digest --audit   # flagged pages the gate would still send, then
-                            # ready-to-paste deny entries and counts
+just check                          # Ruff lint + pytest
+nix build .#panopticon --no-link     # package/build check
 ```
 
-The audit reads stored records and the config only. It makes no network call
-and writes nothing. Its output includes URL paths and titles, so run it by
-hand, never from a unit whose stdout reaches the journal, and keep its output
-out of version control.
+Most implementation is Python; the Firefox producer is JavaScript with
+vendored Mozilla Readability. Compositor adapters normalize native IPC into a
+shared desktop model. Add a raw producer through `RawStore`, a derivation in
+the segmentizer's `_SOURCES` table, and the corresponding retention mapping.
 
-**Digests are untrusted derived text**: model output about third-party pages.
-Consumers must treat them as data, never as instructions.
+Home Manager deployment pins the package in `~/flakes`. Editing this checkout
+alone does not update running services. `./bin/reload-hm` updates that flake
+input and runs `home-manager switch`; it is a deployment action, not a dev
+check. Override its targets with `PANOPTICON_FLAKES_DIR` and
+`PANOPTICON_HM_TARGET`.
 
-### Run the segmentizer
+## Remaining work
 
-```sh
-panopticon-segmentize -v
-jq '.per_app_seconds, .per_domain_seconds' \
-  ~/.local/state/behaviour/histograms/daily-$(date +%Y-%m-%d).json
-```
-
-## Development
-
-```sh
-pytest              # test suite
-ruff check .        # lint
-nix build .#panopticon --no-link   # nix build sanity
-```
-
-### Propagating changes to systemd
-
-The user units (`panopticon-sway.service`, `panopticon-segmentize.timer`)
-are wired via home-manager, which pins to a nix flake lockfile. Source
-edits don't reach running daemons until the lock is bumped:
-
-```sh
-./bin/reload-hm
-```
-
-This updates the flake lock in `~/flakes`, runs `home-manager switch`,
-and clears any prior service failures. Override paths with
-`PANOPTICON_FLAKES_DIR` and `PANOPTICON_HM_TARGET`.
-
-## Adding a new producer
-
-1. Write events matching the [schema](docs/schema.md) to
-   `raw/<source>-YYYY-MM-DD.jsonl` via `panopticon.store.RawStore`.
-2. Add a `derive_<source>_segments()` function in the segmentizer.
-3. Add one row to the `_SOURCES` table in
-   `panopticon/segmentizer/__main__.py`.
+Shell/terminal producers and a dedicated Emacs or idle/lock watcher are future
+work; Firefox already supplies its own idle signals. Bookmark backfill and
+capture are proposed (IDE-001), not implemented. Automatic content retention
+(RSK-001), host-side capture/redaction configuration (IDE-003), and wildcard
+path segments in digest deny entries (IDE-005) also remain open. Current deny
+paths are literal prefixes, not glob patterns.
 
 ## License
 

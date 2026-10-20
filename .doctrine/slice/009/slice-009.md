@@ -31,7 +31,8 @@ Decisions taken while scoping (user, 2026-10-20):
   supply it instead? The pin is an SL-006 guarantee; it must not be lost
   silently.
 - **Endpoint rule:** `https://` anywhere, or `http://` only to a loopback
-  host (`127.0.0.1`, `::1`, `localhost`). Other http stays a config error.
+  IP (`127.0.0.0/8`, `::1`). `localhost` is refused (design D1). Other http
+  stays a config error.
 - **Key from file:** read the key from a file (the gateway's per-client key
   file); still never from the config file itself.
 - **Gateway model list** (`~/flakes/agents/gateway.nix`): serve

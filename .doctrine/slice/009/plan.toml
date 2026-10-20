@@ -1,0 +1,114 @@
+# Implementation plan for SL-009 — the authored, durable phase plan.
+#
+# This is the single source of each phase's objective, criteria, verification,
+# and links. Runtime status lives separately under .doctrine/state/ (phase
+# tracking) — never record progress here. Hand-edit freely: the tool reads this
+# file but does not rewrite it.
+schema  = "doctrine.plan.overview"
+version = 1
+slice   = "SL-009"
+
+# Canonical spec/requirement links — cite ids, never restate what they say. The
+# plan reader does not model these yet, so nothing downstream consumes them.
+[specs]
+primary       = []
+collaborators = []
+
+[requirements]
+targets      = []
+dependencies = []
+
+# One [[phase]] per ordered phase, in execution order — the authored array order
+# IS the order; never sort by id. Ids are PHASE-NN (zero-padded), immutable and
+# never reused once authored — edits append, they never renumber, so the id
+# sequence goes non-monotonic after a split and that is expected. Criterion ids
+# are local to their phase, bare, and equally immutable
+# (`lib:reference/glossary.md` § reference forms). The prefix is
+# the only mode marker; there is no mode field. Reference a criterion from
+# another phase phase-qualified (PHASE-03/EX-8) — bare EX-8 is ambiguous.
+[[phase]]
+id        = "PHASE-01"
+name      = "Loopback http endpoint and key file"
+objective = """
+Design §5.2 Config and Key resolution, D1, D2:
+- `config.py`: `_is_https_url` → `_is_endpoint_url` (https, or http to a
+  loopback IP literal; no userinfo, no zone id, valid port). `api_key_file`
+  (string ops only: `/…` or `~/…`); at most one of `api_key_env` /
+  `api_key_file`; `ProviderConfig.key_source: KeyEnv | KeyFile`. Docstring.
+- `__main__`: `_api_key(source, env) -> str | None`, at today's read point
+  (after `--dry-run` and `enabled`). KeyFile: expanduser, regular file
+  (fstat), ≤ 4 KiB, UTF-8, one trailing newline removed; errors log path +
+  exception class only. The whitespace/control check names its source.
+- Update `ProviderConfig` callers in tests.
+"""
+entrance_criteria = [
+  { id = "EN-1", text = "Design SL-009 approved (user, 2026-10-21)." },
+]
+exit_criteria = [
+  { id = "EX-1", text = "config.py stays in the purity tripwire's pure set (no os/pathlib)." },
+  { id = "EX-2", text = "Existing env-key tests green, changed only for the ProviderConfig constructor." },
+  { id = "EX-3", text = "`just check` green." },
+]
+verification = [
+  { id = "VT-1", expects = "Endpoint: http to 127.0.0.1, 127.1.2.3, [::1], [::ffff:127.0.0.1] accepted; http to a public host, localhost, 0.0.0.0, [::1%lo] rejected; userinfo rejected for http and https; bad port rejected. api_key_file absolute and ~/ accepted, relative rejected; both key fields rejected without echoing values.", test_file = "tests/test_digest_config.py", keywords = ["api_key_file", "loopback", "userinfo", "port"], patterns = ["def test_"], waived = false },
+  { id = "VT-2", expects = "Key file sent as the bearer with one trailing newline removed; missing, directory, oversize → exit 2; non-UTF-8 → exit 2 with neither bytes nor key in logs; inner whitespace or CRLF → exit 2 naming the key file; disabled config with a missing key file → exit 0.", test_file = "tests/test_digest_main.py", keywords = ["api_key_file", "KeyFile"], patterns = ["def test_"], waived = false },
+]
+specs        = []
+requirements = []
+
+[[phase]]
+id        = "PHASE-02"
+name      = "Docs and reference units"
+objective = """
+Design §8, D5-D7:
+- README: config example (`api_key_file`, loopback endpoint note);
+  scheduling paragraph (Home Manager / flakes, or the reference units).
+- `docs/privacy.md`: endpoint rule; key sources; the gateway hop — local
+  prompt logging (D6), unauthenticated loopback (D7), records name the
+  gateway (D7).
+- `systemd/digest.{service,timer}`: comments only.
+- `__main__` module docstring: drop "nothing enables the timer".
+"""
+entrance_criteria = [
+  { id = "EN-1", text = "PHASE-01 completed." },
+]
+exit_criteria = [
+  { id = "EX-1", text = "No real host, key path beyond the documented gateway default, or private config in the repo." },
+  { id = "EX-2", text = "`just check` green." },
+]
+verification = [
+  { id = "VA-1", expects = "README, privacy.md and unit comments agree with design D1, D2, D5-D7 and with the code." },
+]
+specs        = []
+requirements = []
+
+[[phase]]
+id        = "PHASE-03"
+name      = "Deploy through ~/flakes; live verification"
+objective = """
+Design §5.2 Units and Gateway, §9 VH:
+- Push panopticon so the flakes input (github:davidlee/panopticon) can see
+  PHASE-01/02.
+- `~/flakes`: add `openai/gpt-4.1-mini` to the OpenRouter routed list
+  (`agents/gateway.nix`); add the `panopticon-digest` service + timer
+  (`features/attention/behaviour.nix`); update the panopticon input. Commit
+  only these paths: `~/flakes` has unrelated uncommitted work, including
+  flake.lock.
+- User: rebuild (gateway is NixOS, units are Home Manager), add the model to
+  the `panopticon-digest` key, switch `digest.toml` to the gateway.
+- VH-0 before the timer's first run; then VH-1, VH-2. Counts only in notes.
+"""
+entrance_criteria = [
+  { id = "EN-1", text = "PHASE-02 completed." },
+  { id = "EN-2", text = "User approves the push and the ~/flakes commits." },
+]
+exit_criteria = [
+  { id = "EX-1", text = "notes.md records VH outcomes as counts; no real host, URL, title or SHA committed." },
+]
+verification = [
+  { id = "VH-0", expects = "`panopticon-digest --limit 3 -v` through the gateway with openrouter/openai/gpt-4.1-mini digests 3 pages (strict response_format survives LiteLLM)." },
+  { id = "VH-1", expects = "`systemctl --user start panopticon-digest` digests N > 0 pages; `list-timers` shows the timer with a next run; a new record shows the gateway endpoint and model." },
+  { id = "VH-2", expects = "`panopticon-digest --audit` runs and reports as before." },
+]
+specs        = []
+requirements = []

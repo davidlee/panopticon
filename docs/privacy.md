@@ -110,10 +110,12 @@ key file named in config, never from the config file itself. The client refuses
 redirects (so neither the key nor the page reaches another host), ignores
 `*_PROXY` variables and verifies certificates. Logs carry only the content
 hash, HTTP status and failure kind: never page text, request bodies, headers or
-credentials.
+credentials. Key and config errors name the environment variable or key-file
+path and the exception class, never the key or its bytes.
 
-A local gateway may store prompts in its local sqlite database, so the page
-text stays on the machine. Loopback `http` authenticates no server: if the
+A local gateway may also keep a copy of prompts in its local sqlite database;
+that copy stays on the machine. The prompt is still forwarded upstream over
+https. Loopback `http` authenticates no server: if the
 gateway's socket-activated relay is down, another local process could bind the
 port and receive the key and page text. This is accepted for a single-user
 machine; a unix socket would be the authenticated alternative, but is not

@@ -475,6 +475,16 @@ def test_exit_2_when_key_has_whitespace_or_control_chars(
     assert bad.strip() not in caplog.text
 
 
+@pytest.mark.parametrize("bad", ["sk-🔑-KEY", "sk-é-KEY", "sk KEY"])
+def test_exit_2_when_key_is_not_visible_ascii(env: Env, caplog: pytest.LogCaptureFixture, bad: str):
+    add_page(env.root, 1)
+    assert env.run(key=bad) == 2
+    assert env.transport.calls == []
+    assert KEY_ENV in caplog.text
+    assert "characters other than visible ASCII" in caplog.text
+    assert bad not in caplog.text
+
+
 @pytest.mark.parametrize("sha", ["../../escape", "ABC", "0" * 63])
 def test_a_non_hex_content_hash_never_reaches_a_store_path(env: Env, capsys, sha: str):
     real = add_page(env.root, 1)
@@ -532,6 +542,17 @@ def test_key_file_is_sent_as_the_bearer_with_one_trailing_newline_removed(
     assert FILE_KEY not in caplog.text
 
 
+def test_key_file_path_with_tilde_is_expanded_from_home(
+    env: Env, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    (tmp_path / "key").write_bytes(f"{FILE_KEY}\n".encode())
+    write_config(env.config, key_file="~/key")
+    add_page(env.root, 1)
+    assert env.run(key=None) == 0
+    assert env.transport.headers == [{"Authorization": f"Bearer {FILE_KEY}"}]
+
+
 def test_key_file_of_exactly_4096_bytes_is_accepted(env: Env, tmp_path: Path):
     path = key_file(tmp_path, b"k" * 4095 + b"\n")
     write_config(env.config, key_file=str(path))
@@ -552,7 +573,13 @@ def test_exit_2_when_the_key_file_is_a_directory(env: Env, tmp_path: Path, caplo
     path.mkdir()
     write_config(env.config, key_file=str(path))
     assert env.run(key=None) == 2
-    assert str(path) in caplog.text and "IsADirectoryError" in caplog.text
+    assert f"key file {path} is not a regular file" in caplog.text
+
+
+def test_exit_2_when_the_key_file_path_holds_a_control_character(env: Env, caplog):
+    write_config(env.config, key_file="/tmp/key\\u0000suffix")
+    assert env.run(key=None) == 2
+    assert "api_key_file" in caplog.text and "Traceback" not in caplog.text
 
 
 def test_exit_2_without_blocking_when_the_key_file_is_a_fifo(env: Env, tmp_path: Path, caplog):
@@ -606,7 +633,7 @@ def test_exit_2_when_the_key_file_holds_inner_whitespace_or_crlf(
     assert env.run(key=None) == 2
     assert env.transport.calls == []
     assert f"key file {path}" in caplog.text
-    assert bad.strip() not in caplog.text
+    assert FILE_KEY not in caplog.text
 
 
 def test_disabled_with_a_missing_key_file_is_exit_0(env: Env, tmp_path: Path):

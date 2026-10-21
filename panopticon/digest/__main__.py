@@ -12,7 +12,9 @@ One run:
    ``limit`` candidates; send each through the transport and record the outcome.
 
 Fail markers are held until the run proves the provider healthy (D13, D14);
-breakers abort with exit 1. Logs carry SHAs, statuses and kinds only (I5).
+breakers abort with exit 1. Logs carry SHAs, statuses and kinds only (I5); key
+errors log only the environment variable name or key-file path and the
+exception class.
 """
 
 from __future__ import annotations
@@ -74,6 +76,7 @@ type Transport = Callable[[str, Mapping[str, str], bytes], bytes]
 STAGE = "digest"
 LOCK = "digest.lock"
 _SHA = re.compile(r"[0-9a-f]{64}")
+_KEY = re.compile(r"[!-~]+")  # visible ASCII: a header-safe Bearer token
 _KEY_FILE_MAX = 4096  # bytes; the gateway writes a key and one trailing "\n"
 CONTENT_BREAKER = 5  # content failures since the last success
 PROVIDER_BREAKER = 3  # transport failures / provider_error since the last success
@@ -169,9 +172,9 @@ def _api_key(source: KeyEnv | KeyFile, env: Mapping[str, str]) -> str | None:
             log.error("API key file %s is empty", source.path)
             return None
         label = f"key file {source.path}"
-    if key != key.strip() or not key.isprintable():
+    if not _KEY.fullmatch(key):
         # http.client would echo the key in its "Invalid header value" error.
-        log.error("API key in %s holds whitespace or control characters", label)
+        log.error("API key in %s holds characters other than visible ASCII", label)
         return None
     return key
 
@@ -179,14 +182,18 @@ def _api_key(source: KeyEnv | KeyFile, env: Mapping[str, str]) -> str | None:
 def _read_key_file(path: str) -> str | None:
     """The file's contents minus one trailing newline; ``None`` after logging a failure."""
     try:
-        # O_NONBLOCK: opening a FIFO with no writer would otherwise block before fstat.
-        fd = os.open(Path(path).expanduser(), os.O_RDONLY | os.O_NONBLOCK)
-        with open(fd, "rb") as f:
-            if not stat.S_ISREG(os.fstat(f.fileno()).st_mode):  # never read a device
+        # O_NONBLOCK: a writerless FIFO would otherwise block before fstat.
+        # O_NOCTTY: opening a tty must not acquire a controlling terminal.
+        fd = os.open(Path(path).expanduser(), os.O_RDONLY | os.O_NONBLOCK | os.O_NOCTTY)
+        try:
+            if not stat.S_ISREG(os.fstat(fd).st_mode):  # never read a device
                 log.error("key file %s is not a regular file", path)
                 return None
-            raw = f.read(_KEY_FILE_MAX + 1)
-    except (OSError, RuntimeError) as e:  # RuntimeError: "~" cannot be resolved
+            raw = os.read(fd, _KEY_FILE_MAX + 1)
+        finally:
+            os.close(fd)
+    except (OSError, RuntimeError, ValueError) as e:
+        # RuntimeError: "~" cannot be resolved; ValueError: a NUL in the path.
         log.error("key file %s: %s", path, type(e).__name__)
         return None
     if len(raw) > _KEY_FILE_MAX:

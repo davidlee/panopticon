@@ -133,6 +133,7 @@ def test_rejects_a_non_endpoint_url(endpoint: str):
         "http://127.1.2.3/v1",
         "http://[::1]:4000/v1/chat/completions",
         "http://[::ffff:127.0.0.1]/v1",
+        "http://[::ffff:127.0.0.1]:4000/v1",
     ],
 )
 def test_accepts_http_to_a_loopback_ip(endpoint: str):
@@ -150,6 +151,33 @@ def test_accepts_http_to_a_loopback_ip(endpoint: str):
 )
 def test_rejects_http_to_a_non_loopback_host(endpoint: str):
     rejects(with_("digest.endpoint", endpoint), "loopback IP")
+
+
+@pytest.mark.parametrize(
+    "endpoint",
+    [
+        "http://127.0.0.1.:4000/v1",  # a trailing dot is a name
+        "http://127.1/",  # short forms would be resolved
+        "http://2130706433/",  # an integer would be resolved
+        "http://0177.0.0.1/",  # leading-zero octets are not IP literals
+        "http://0x7f.0.0.1/",  # hexadecimal octets are not IP literals
+    ],
+)
+def test_rejects_http_that_would_need_resolution(endpoint: str):
+    rejects(with_("digest.endpoint", endpoint), "loopback IP")
+
+
+@pytest.mark.parametrize(
+    "endpoint",
+    [
+        "http://127.0.0.1:4000/v1\x00",
+        "http://127.0.0.\t1:4000/v1",
+        " http://127.0.0.1:4000/v1",
+        "https://openrouter.ai\u200b.evil.com/v1",
+    ],
+)
+def test_rejects_an_endpoint_with_non_visible_ascii(endpoint: str):
+    rejects(with_("digest.endpoint", endpoint), "endpoint")
 
 
 @pytest.mark.parametrize(
@@ -234,7 +262,10 @@ def test_accepts_an_api_key_file_path(path: str):
     assert parse_config(with_key_file(path)).provider.key_source == KeyFile(path)
 
 
-@pytest.mark.parametrize("path", ["keys/panopticon-digest", "./key", "~other/key", "", 3])
+@pytest.mark.parametrize(
+    "path",
+    ["keys/panopticon-digest", "./key", "~other/key", "", 3, "/tmp/key\x00", "/tmp/key\n"],
+)
 def test_rejects_a_relative_or_malformed_api_key_file(path: Any):
     rejects(with_key_file(path), "api_key_file")
 

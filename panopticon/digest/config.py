@@ -1,4 +1,5 @@
-"""Strict parsing of ``digest.toml`` into frozen config (design §5.2 Config, D3, D4).
+"""Strict parsing of ``digest.toml`` into frozen config (design §5.2 Config, D3, D4;
+SL-009 D1, D2).
 
 Pure: takes the already-loaded TOML dict. An unknown key at any level is an
 error, so a typo cannot silently drop the denylist and a literal ``api_key``
@@ -179,7 +180,7 @@ def _is_nonempty_str(v: Any) -> bool:
 
 def _is_endpoint_url(v: Any) -> bool:
     """https with a host, or http to a loopback IP literal (D1); no userinfo or zone id."""
-    if not isinstance(v, str):
+    if not isinstance(v, str) or not (v.isascii() and v.isprintable() and " " not in v):
         return False
     try:
         parts = urlsplit(v)
@@ -204,7 +205,7 @@ def _is_loopback_ip(host: str) -> bool:
 
 def _is_key_path(v: Any) -> bool:
     """A plain string shape check: ``config.py`` stays pure (no ``pathlib``/``os``)."""
-    return isinstance(v, str) and (v.startswith("/") or v.startswith("~/"))
+    return isinstance(v, str) and v.isprintable() and (v.startswith("/") or v.startswith("~/"))
 
 
 def _is_list_of(normalise: Callable[[str], str | None]) -> Callable[[Any], bool]:

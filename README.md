@@ -254,7 +254,9 @@ max_output_tokens = 1500
 The key comes from the named environment variable or key file; set at most one.
 A literal key in config is refused. For a local gateway, set `endpoint =
 "http://127.0.0.1:4000/v1/chat/completions"` and `api_key_file =
-"~/.config/llm-gateway/keys/<client>"`. `http` is accepted only to a loopback
+"~/.config/llm-gateway/keys/<client>"`. Through the gateway the model is the
+gateway's name, `<gateway provider>/<upstream id>` (for example
+`openrouter/openai/gpt-4.1-mini`). `http` is accepted only to a loopback
 IP literal (not `localhost`); elsewhere use `https`.
 
 For a passing page, page-derived input is the host, title and text,
@@ -289,8 +291,10 @@ pages are untrusted source material for consumers, never instructions.
 
 To schedule digests, wire the service and timer through Home Manager or a Nix
 flake, or install `systemd/digest.{service,timer}` as user units. With
-`api_key_file` no environment file is needed; for `api_key_env` the service
-reads the fixed path `~/.config/panopticon/digest.env` when present, for
+`api_key_file` the unit needs no environment file. With `api_key_env`, a Home
+Manager or flake unit must supply the variable itself (for example an
+`Environment=` or `EnvironmentFile=` directive); only the shipped reference
+unit reads the fixed path `~/.config/panopticon/digest.env` when present, for
 example `OPENROUTER_API_KEY=…`. Restrict whichever file holds the key to mode
 `0600`. Then enable `digest.timer`. The shipped units do not enable themselves.
 

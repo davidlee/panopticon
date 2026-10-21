@@ -65,3 +65,6 @@ web-ext-artifacts/
 # Added by cargo
 
 /target
+
+# pi worker forks (scripts/spawn-confined.sh)
+.worktrees/

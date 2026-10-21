@@ -1,9 +1,9 @@
 id = 9
 slug = "digest-via-gateway"
 title = "digest: scheduled run through the LLM gateway"
-status = "design"
+status = "started"
 created = "2026-10-20"
-updated = "2026-10-20"
+updated = "2026-10-21"
 tags = []
 
 [relationships]

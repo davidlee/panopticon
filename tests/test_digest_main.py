@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import threading
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -23,6 +25,7 @@ from panopticon.ingest.content import ContentStore, content_dir
 
 KEY_ENV = "TEST_DIGEST_KEY"
 KEY = "sk-SECRET-KEY-0001"
+FILE_KEY = "sk-FILE-KEY-0002"
 ENDPOINT = "https://provider.example/v1/chat"
 T0 = datetime(2026, 10, 1, 12, 0, tzinfo=UTC)
 
@@ -30,10 +33,15 @@ T0 = datetime(2026, 10, 1, 12, 0, tzinfo=UTC)
 # --- fixtures -----------------------------------------------------------------
 
 
-def write_config(path: Path, *, enabled: bool = True, extra: str = "") -> Path:
+def write_config(
+    path: Path, *, enabled: bool = True, extra: str = "", key_file: str | None = None
+) -> Path:
+    key_source = (
+        f'api_key_env = "{KEY_ENV}"' if key_file is None else f'api_key_file = "{key_file}"'
+    )
     path.write_text(
         f"enabled = {str(enabled).lower()}\n{extra}\n"
-        f'[digest]\nmodel = "test/model"\nendpoint = "{ENDPOINT}"\napi_key_env = "{KEY_ENV}"\n',
+        f'[digest]\nmodel = "test/model"\nendpoint = "{ENDPOINT}"\n{key_source}\n',
         encoding="utf-8",
     )
     return path
@@ -501,6 +509,111 @@ def test_exit_1_when_a_breaker_trips(env: Env):
     add_page(env.root, 1)
     env.transport.script = [ProviderUnavailable(402)]
     assert env.run() == 1
+
+
+# --- SL-009: the key from a file -----------------------------------------------
+
+
+def key_file(tmp_path: Path, data: bytes) -> Path:
+    path = tmp_path / "digest-key"
+    path.write_bytes(data)
+    return path
+
+
+def test_key_file_is_sent_as_the_bearer_with_one_trailing_newline_removed(
+    env: Env, tmp_path: Path, caplog: pytest.LogCaptureFixture
+):
+    caplog.set_level(logging.DEBUG)
+    path = key_file(tmp_path, f"{FILE_KEY}\n".encode())
+    write_config(env.config, key_file=str(path))
+    add_page(env.root, 1)
+    assert env.run(key=None) == 0
+    assert env.transport.headers == [{"Authorization": f"Bearer {FILE_KEY}"}]
+    assert FILE_KEY not in caplog.text
+
+
+def test_key_file_of_exactly_4096_bytes_is_accepted(env: Env, tmp_path: Path):
+    path = key_file(tmp_path, b"k" * 4095 + b"\n")
+    write_config(env.config, key_file=str(path))
+    add_page(env.root, 1)
+    assert env.run(key=None) == 0
+    assert env.transport.headers == [{"Authorization": f"Bearer {'k' * 4095}"}]
+
+
+def test_exit_2_when_the_key_file_is_missing(env: Env, tmp_path: Path, caplog):
+    path = tmp_path / "absent-key"
+    write_config(env.config, key_file=str(path))
+    assert env.run(key=None) == 2
+    assert str(path) in caplog.text and "FileNotFoundError" in caplog.text
+
+
+def test_exit_2_when_the_key_file_is_a_directory(env: Env, tmp_path: Path, caplog):
+    path = tmp_path / "keys"
+    path.mkdir()
+    write_config(env.config, key_file=str(path))
+    assert env.run(key=None) == 2
+    assert str(path) in caplog.text and "IsADirectoryError" in caplog.text
+
+
+def test_exit_2_without_blocking_when_the_key_file_is_a_fifo(env: Env, tmp_path: Path, caplog):
+    path = tmp_path / "key-fifo"
+    os.mkfifo(path)  # no writer: a blocking open would never return
+    write_config(env.config, key_file=str(path))
+    result: list[int] = []
+    runner = threading.Thread(target=lambda: result.append(env.run(key=None)), daemon=True)
+    runner.start()
+    runner.join(timeout=5)
+    assert result == [2]
+    assert f"key file {path} is not a regular file" in caplog.text
+
+
+def test_exit_2_when_the_key_file_is_oversize(env: Env, tmp_path: Path, caplog):
+    path = key_file(tmp_path, b"k" * 4097)
+    write_config(env.config, key_file=str(path))
+    assert env.run(key=None) == 2
+    assert str(path) in caplog.text
+
+
+@pytest.mark.parametrize("data", [b"", b"\n"])
+def test_exit_2_when_the_key_file_is_empty(env: Env, tmp_path: Path, caplog, data: bytes):
+    path = key_file(tmp_path, data)
+    write_config(env.config, key_file=str(path))
+    assert env.run(key=None) == 2
+    assert str(path) in caplog.text
+
+
+def test_exit_2_when_the_key_file_is_not_utf8_and_the_logs_hold_no_key(
+    env: Env, tmp_path: Path, caplog: pytest.LogCaptureFixture
+):
+    caplog.set_level(logging.DEBUG)
+    path = key_file(tmp_path, b"sk-BYTES-\xff\xfe-KEY")
+    write_config(env.config, key_file=str(path))
+    add_page(env.root, 1)
+    assert env.run(key=None) == 2
+    assert env.transport.calls == []
+    assert str(path) in caplog.text and "UnicodeDecodeError" in caplog.text
+    for leaked in ("sk-BYTES", "\\xff", "\\xfe", "codec can't decode"):
+        assert leaked not in caplog.text
+
+
+@pytest.mark.parametrize("bad", [f"{FILE_KEY}\nMORE", f"{FILE_KEY}\r\n", f"{FILE_KEY}\tMORE"])
+def test_exit_2_when_the_key_file_holds_inner_whitespace_or_crlf(
+    env: Env, tmp_path: Path, caplog, bad: str
+):
+    path = key_file(tmp_path, bad.encode())
+    write_config(env.config, key_file=str(path))
+    add_page(env.root, 1)
+    assert env.run(key=None) == 2
+    assert env.transport.calls == []
+    assert f"key file {path}" in caplog.text
+    assert bad.strip() not in caplog.text
+
+
+def test_disabled_with_a_missing_key_file_is_exit_0(env: Env, tmp_path: Path):
+    write_config(env.config, enabled=False, key_file=str(tmp_path / "absent-key"))
+    add_page(env.root, 1)
+    assert env.run(key=None) == 0
+    assert env.transport.calls == []
 
 
 # --- the shipped unit -----------------------------------------------------------

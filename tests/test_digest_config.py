@@ -8,7 +8,7 @@ from typing import Any
 
 import pytest
 
-from panopticon.digest.config import ConfigError, parse_config
+from panopticon.digest.config import ConfigError, KeyEnv, KeyFile, parse_config
 from panopticon.digest.gate import DEFAULT_DENY
 
 EXAMPLE = """
@@ -55,6 +55,13 @@ def without(path: str) -> dict[str, Any]:
     return raw
 
 
+def with_key_file(path: Any) -> dict[str, Any]:
+    """The example with ``api_key_env`` swapped for ``api_key_file = path``."""
+    raw = without("digest.api_key_env")
+    raw["digest"]["api_key_file"] = path
+    return raw
+
+
 def rejects(raw: dict[str, Any], match: str) -> None:
     with pytest.raises(ConfigError, match=match):
         parse_config(raw)
@@ -70,7 +77,7 @@ def test_parses_the_design_example():
     assert cfg.gate.min_quality == 0.7
     assert cfg.provider.endpoint == "https://openrouter.ai/api/v1/chat/completions"
     assert cfg.provider.model == "vendor/model"
-    assert cfg.provider.api_key_env == "OPENROUTER_API_KEY"
+    assert cfg.provider.key_source == KeyEnv("OPENROUTER_API_KEY")
     assert cfg.provider.max_input_chars == 24000
     assert cfg.provider.max_output_tokens == 1500
 
@@ -83,7 +90,7 @@ def test_minimal_config_takes_defaults():
     assert cfg.gate.allow is None
     assert (cfg.gate.min_chars, cfg.gate.min_quality) == (1500, 0.7)
     assert cfg.provider.endpoint == "https://openrouter.ai/api/v1/chat/completions"
-    assert cfg.provider.api_key_env == "OPENROUTER_API_KEY"
+    assert cfg.provider.key_source == KeyEnv("OPENROUTER_API_KEY")
     assert (cfg.provider.max_input_chars, cfg.provider.max_output_tokens) == (24000, 1500)
 
 
@@ -115,7 +122,47 @@ def test_rejects_an_unknown_table():
     "endpoint",
     ["http://openrouter.ai/api/v1/chat/completions", "ftp://x.org/", "openrouter.ai", "https://"],
 )
-def test_rejects_a_non_https_endpoint(endpoint: str):
+def test_rejects_a_non_endpoint_url(endpoint: str):
+    rejects(with_("digest.endpoint", endpoint), "endpoint")
+
+
+@pytest.mark.parametrize(
+    "endpoint",
+    [
+        "http://127.0.0.1:4000/v1/chat/completions",
+        "http://127.1.2.3/v1",
+        "http://[::1]:4000/v1/chat/completions",
+        "http://[::ffff:127.0.0.1]/v1",
+    ],
+)
+def test_accepts_http_to_a_loopback_ip(endpoint: str):
+    assert parse_config(with_("digest.endpoint", endpoint)).provider.endpoint == endpoint
+
+
+@pytest.mark.parametrize(
+    "endpoint",
+    [
+        "http://openrouter.ai/api",  # a host that is not an IP literal
+        "http://localhost:4000/v1",  # a name, not an IP literal
+        "http://0.0.0.0:4000/v1",
+        "http://[::1%lo]:4000/v1",  # a zone id
+    ],
+)
+def test_rejects_http_to_a_non_loopback_host(endpoint: str):
+    rejects(with_("digest.endpoint", endpoint), "loopback IP")
+
+
+@pytest.mark.parametrize(
+    "endpoint", ["http://user:pw@127.0.0.1:4000/v1", "https://user@openrouter.ai/api"]
+)
+def test_rejects_userinfo_in_the_endpoint(endpoint: str):
+    rejects(with_("digest.endpoint", endpoint), "endpoint")
+
+
+@pytest.mark.parametrize(
+    "endpoint", ["http://127.0.0.1:notaport/v1", "https://openrouter.ai:99999999/api"]
+)
+def test_rejects_a_bad_port(endpoint: str):
     rejects(with_("digest.endpoint", endpoint), "endpoint")
 
 
@@ -178,6 +225,25 @@ def test_rejects_a_domain_list_of_the_wrong_type(field: str, value: Any):
 @pytest.mark.parametrize("value", ["", 3])
 def test_rejects_a_bad_api_key_env(value: Any):
     rejects(with_("digest.api_key_env", value), "api_key_env")
+
+
+@pytest.mark.parametrize(
+    "path", ["/etc/panopticon/digest-key", "~/.config/llm-gateway/keys/panopticon-digest"]
+)
+def test_accepts_an_api_key_file_path(path: str):
+    assert parse_config(with_key_file(path)).provider.key_source == KeyFile(path)
+
+
+@pytest.mark.parametrize("path", ["keys/panopticon-digest", "./key", "~other/key", "", 3])
+def test_rejects_a_relative_or_malformed_api_key_file(path: Any):
+    rejects(with_key_file(path), "api_key_file")
+
+
+def test_rejects_both_key_sources_without_echoing_a_value():
+    with pytest.raises(ConfigError) as err:
+        parse_config(with_("digest.api_key_file", "~/keys/secret-path"))
+    assert "api_key_env" in str(err.value) and "api_key_file" in str(err.value)
+    assert "secret-path" not in str(err.value)
 
 
 @pytest.mark.parametrize("path", ["gate", "digest"])

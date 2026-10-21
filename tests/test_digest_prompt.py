@@ -7,7 +7,7 @@ from typing import Any
 
 import pytest
 
-from panopticon.digest.config import ProviderConfig
+from panopticon.digest.config import KeyEnv, ProviderConfig
 from panopticon.digest.prompt import (
     DIGEST_SCHEMA,
     ENTITY_LIMIT,
@@ -26,7 +26,7 @@ from panopticon.digest.prompt import (
 PROVIDER = ProviderConfig(
     endpoint="https://provider.example/v1/chat/completions",
     model="vendor/model",
-    api_key_env="KEY",
+    key_source=KeyEnv("KEY"),
     max_input_chars=100,
     max_output_tokens=777,
 )

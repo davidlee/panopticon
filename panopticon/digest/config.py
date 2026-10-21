@@ -2,12 +2,13 @@
 
 Pure: takes the already-loaded TOML dict. An unknown key at any level is an
 error, so a typo cannot silently drop the denylist and a literal ``api_key``
-is refused. Secrets come only from the environment variable named by
-``api_key_env``.
+is refused. The key comes from an environment variable or a key file named
+there, never from the config file itself.
 """
 
 from __future__ import annotations
 
+import ipaddress
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
@@ -22,10 +23,13 @@ from panopticon.digest.gate import (
 
 _MISSING = object()
 _OPENROUTER = "https://openrouter.ai/api/v1/chat/completions"
+_DEFAULT_KEY_ENV = "OPENROUTER_API_KEY"
 _POS_INT = "a positive integer"
 _STR = "a non-empty string"
 _HOSTS = "a list of hostnames (lowercase ASCII; punycode for IDN)"
 _DENY = "a list of hostnames, each with an optional /path prefix"
+_ENDPOINT = "an https:// URL, or http:// to a loopback IP"
+_KEY_PATH = "an absolute path or one starting with ~/"
 
 
 class ConfigError(ValueError):
@@ -33,10 +37,24 @@ class ConfigError(ValueError):
 
 
 @dataclass(frozen=True)
+class KeyEnv:
+    """The key is read from the environment variable ``name``."""
+
+    name: str
+
+
+@dataclass(frozen=True)
+class KeyFile:
+    """The key is read from the file at ``path`` (``~`` expanded by the caller)."""
+
+    path: str
+
+
+@dataclass(frozen=True)
 class ProviderConfig:
     endpoint: str
     model: str
-    api_key_env: str
+    key_source: KeyEnv | KeyFile
     max_input_chars: int
     max_output_tokens: int
 
@@ -77,19 +95,33 @@ def _parse_gate(raw: Any) -> GateConfig:
 def _parse_provider(raw: Any) -> ProviderConfig:
     if raw is _MISSING:
         raise ConfigError("digest: missing table (digest.model is required)")
-    keys = {"endpoint", "model", "api_key_env", "max_input_chars", "max_output_tokens"}
+    keys = {
+        "endpoint",
+        "model",
+        "api_key_env",
+        "api_key_file",
+        "max_input_chars",
+        "max_output_tokens",
+    }
     t = _table(raw, "digest", keys)
     return ProviderConfig(
-        endpoint=_field(t, "digest", "endpoint", _OPENROUTER, _is_https_url, "an https:// URL"),
+        endpoint=_field(t, "digest", "endpoint", _OPENROUTER, _is_endpoint_url, _ENDPOINT),
         model=_field(t, "digest", "model", _MISSING, _is_nonempty_str, _STR),
-        api_key_env=_field(
-            t, "digest", "api_key_env", "OPENROUTER_API_KEY", _is_nonempty_str, _STR
-        ),
+        key_source=_key_source(t),
         max_input_chars=_field(t, "digest", "max_input_chars", 24000, _is_positive_int, _POS_INT),
         max_output_tokens=_field(
             t, "digest", "max_output_tokens", 1500, _is_positive_int, _POS_INT
         ),
     )
+
+
+def _key_source(t: Mapping[str, Any]) -> KeyEnv | KeyFile:
+    """At most one of ``api_key_env`` / ``api_key_file``; neither takes the default."""
+    if "api_key_env" in t and "api_key_file" in t:
+        raise ConfigError("digest.api_key_env and digest.api_key_file: set at most one")
+    if "api_key_file" in t:
+        return KeyFile(_field(t, "digest", "api_key_file", _MISSING, _is_key_path, _KEY_PATH))
+    return KeyEnv(_field(t, "digest", "api_key_env", _DEFAULT_KEY_ENV, _is_nonempty_str, _STR))
 
 
 def _key_path(path: str, key: str) -> str:
@@ -145,18 +177,38 @@ def _is_nonempty_str(v: Any) -> bool:
     return isinstance(v, str) and v != ""
 
 
-def _is_https_url(v: Any) -> bool:
+def _is_endpoint_url(v: Any) -> bool:
+    """https with a host, or http to a loopback IP literal (D1); no userinfo or zone id."""
     if not isinstance(v, str):
         return False
     try:
         parts = urlsplit(v)
-        return parts.scheme == "https" and bool(parts.hostname)
+        host = parts.hostname
+        _ = parts.port  # a bad port raises ValueError
+    except ValueError:
+        return False
+    if not host or "@" in parts.netloc or "%" in host:
+        return False
+    if parts.scheme == "https":
+        return True
+    return parts.scheme == "http" and _is_loopback_ip(host)
+
+
+def _is_loopback_ip(host: str) -> bool:
+    """An IP literal (not a name) on the loopback range; resolution plays no part."""
+    try:
+        return ipaddress.ip_address(host).is_loopback
     except ValueError:
         return False
 
 
+def _is_key_path(v: Any) -> bool:
+    """A plain string shape check: ``config.py`` stays pure (no ``pathlib``/``os``)."""
+    return isinstance(v, str) and (v.startswith("/") or v.startswith("~/"))
+
+
 def _is_list_of(normalise: Callable[[str], str | None]) -> Callable[[Any], bool]:
     """A validator: a list of strings that each ``normalise``."""
-    return lambda v: isinstance(v, list) and all(
-        isinstance(e, str) and normalise(e) is not None for e in v
+    return lambda v: (
+        isinstance(v, list) and all(isinstance(e, str) and normalise(e) is not None for e in v)
     )

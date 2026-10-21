@@ -21,6 +21,7 @@ import json
 import logging
 import os
 import re
+import stat
 import sys
 import tomllib
 from collections import Counter
@@ -40,7 +41,14 @@ from panopticon.digest.client import (
     TransportFailure,
     post_json,
 )
-from panopticon.digest.config import ConfigError, DigestConfig, ProviderConfig, parse_config
+from panopticon.digest.config import (
+    ConfigError,
+    DigestConfig,
+    KeyEnv,
+    KeyFile,
+    ProviderConfig,
+    parse_config,
+)
 from panopticon.digest.gate import GateConfig, Pass, Reason, Reject, Verdict, gate
 from panopticon.digest.prompt import (
     PROMPT_VERSION,
@@ -65,6 +73,7 @@ type Transport = Callable[[str, Mapping[str, str], bytes], bytes]
 STAGE = "digest"
 LOCK = "digest.lock"
 _SHA = re.compile(r"[0-9a-f]{64}")
+_KEY_FILE_MAX = 4096  # bytes; the gateway writes a key and one trailing "\n"
 CONTENT_BREAKER = 5  # content failures since the last success
 PROVIDER_BREAKER = 3  # transport failures / provider_error since the last success
 
@@ -108,16 +117,8 @@ def run(
     if not cfg.enabled:
         log.info("digest is disabled (enabled = false); nothing to do")
         return 0
-    key = env.get(cfg.provider.api_key_env)
-    if not key:
-        log.error("API key environment variable %s is unset", cfg.provider.api_key_env)
-        return 2
-    if key != key.strip() or not key.isprintable():
-        # http.client would echo the key in its "Invalid header value" error.
-        log.error(
-            "API key environment variable %s holds whitespace or control characters",
-            cfg.provider.api_key_env,
-        )
+    key = _api_key(cfg.provider.key_source, env)
+    if key is None:
         return 2
     root.mkdir(parents=True, exist_ok=True)
     with exclusive_lock(root / LOCK) as acquired:
@@ -142,6 +143,59 @@ def audit(root: Path, config_path: Path) -> int:
         print(f"deny\t{json.dumps(entry)}\t{urls}")  # ASCII-escaped: a valid TOML string
     print(" ".join(f"{k}={v}" for k, v in sorted(report.counts.items())))
     return 0
+
+
+# --- the key --------------------------------------------------------------------
+
+
+def _api_key(source: KeyEnv | KeyFile, env: Mapping[str, str]) -> str | None:
+    """The key for ``source``, or ``None`` after logging why there is none (exit 2).
+
+    Never logs the key, nor an exception's message: a decode error holds the
+    raw bytes.
+    """
+    if isinstance(source, KeyEnv):
+        key = env.get(source.name)
+        if not key:
+            log.error("API key environment variable %s is unset", source.name)
+            return None
+        label = f"environment variable {source.name}"
+    else:
+        key = _read_key_file(source.path)
+        if key is None:
+            return None
+        if not key:
+            log.error("API key file %s is empty", source.path)
+            return None
+        label = f"key file {source.path}"
+    if key != key.strip() or not key.isprintable():
+        # http.client would echo the key in its "Invalid header value" error.
+        log.error("API key in %s holds whitespace or control characters", label)
+        return None
+    return key
+
+
+def _read_key_file(path: str) -> str | None:
+    """The file's contents minus one trailing newline; ``None`` after logging a failure."""
+    try:
+        # O_NONBLOCK: opening a FIFO with no writer would otherwise block before fstat.
+        fd = os.open(Path(path).expanduser(), os.O_RDONLY | os.O_NONBLOCK)
+        with open(fd, "rb") as f:
+            if not stat.S_ISREG(os.fstat(f.fileno()).st_mode):  # never read a device
+                log.error("key file %s is not a regular file", path)
+                return None
+            raw = f.read(_KEY_FILE_MAX + 1)
+    except (OSError, RuntimeError) as e:  # RuntimeError: "~" cannot be resolved
+        log.error("key file %s: %s", path, type(e).__name__)
+        return None
+    if len(raw) > _KEY_FILE_MAX:
+        log.error("key file %s is larger than %d bytes", path, _KEY_FILE_MAX)
+        return None
+    try:
+        return raw.decode("utf-8").removesuffix("\n")
+    except UnicodeDecodeError as e:
+        log.error("key file %s: %s", path, type(e).__name__)
+        return None
 
 
 def _load_config(config_path: Path) -> DigestConfig | int:

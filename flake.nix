@@ -77,6 +77,24 @@
         (try-readwrite (noescape "\"\${NIRI_SOCKET:-/nonexistent/niri.sock}\""))
       ];
 
+      # Doctrine bakes `current_exe()` into every file it writes, so the jail
+      # must present it at the host's own path: any other path (the agents
+      # library's /run/doctrine-bin) makes the recorded binary flip with the
+      # side of the wall the write happened on. `add-path` interpolates raw —
+      # PATH is shell text in the wrapper — so the quoted `$HOME` reaches the
+      # runtime shell, where it can expand; a Nix-side path could not.
+      # Belongs upstream in nix-config's `hostDoctrineOptions`; mirrors
+      # ~/dev/malebolge/flake.nix until it lands there.
+      doctrineDir = "\"$HOME/.local/share/doctrine/bin\"";
+      doctrineOptions = with jailLib.combinators; [
+        # A directory, not the file: `cargo install` renames a new binary over
+        # the old inode, and a file bind would pin the deleted one.
+        (try-ro-bind (noescape "~/.local/share/doctrine/bin") (noescape doctrineDir))
+        (add-path doctrineDir)
+      ];
+
+      jailOptions = niriOptions ++ doctrineOptions;
+
       # Every jail reaches models through the local LLM gateway with the
       # shared `pi` key (~/.config/llm-gateway/keys/pi); no provider key
       # enters a jail.
@@ -86,7 +104,7 @@
         jailed-pi = jailLib.makeJailedPi {
           profile = "specDev";
           extraPkgs = projectPkgs;
-          extraOptions = niriOptions;
+          extraOptions = jailOptions;
           allowSelfAsSubagent = true;
           maxSubagentDepth = 2;
           inherit gateway;
@@ -94,13 +112,13 @@
         jailed-claude = jailLib.makeJailedClaude {
           profile = "specDev";
           extraPkgs = projectPkgs;
-          extraOptions = niriOptions;
+          extraOptions = jailOptions;
           inherit gateway;
         };
         jailed-codex = jailLib.makeJailedCodex {
           profile = "specDev";
           extraPkgs = projectPkgs;
-          extraOptions = niriOptions;
+          extraOptions = jailOptions;
           inherit gateway;
         };
         claude = jailLib.agentsByName.claude;
@@ -110,7 +128,7 @@
           agent = pkgs.zsh;
           profile = "specDev";
           extraPkgs = projectPkgs;
-          extraOptions = niriOptions;
+          extraOptions = jailOptions;
           subagents = ["pi" "claude"];
           inherit gateway;
         };

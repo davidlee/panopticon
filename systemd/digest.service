@@ -4,9 +4,10 @@ Description=panopticon — opt-in page digest (the sole network egress; DEC-002)
 [Service]
 Type=oneshot
 ExecStart=panopticon-digest -v
-# Supplies the API key (e.g. OPENROUTER_API_KEY=…). Fixed at ~/.config:
-# systemd cannot honour XDG_CONFIG_HOME here. Optional: without it the run
-# exits 2 once enabled, and does nothing at all while disabled.
+# Optional env key (e.g. OPENROUTER_API_KEY=…), fixed at ~/.config: systemd
+# cannot honour XDG_CONFIG_HOME here. Alternative: api_key_file in digest.toml
+# needs no env file. Without a usable key the run exits 2 once enabled, and
+# does nothing at all while disabled.
 EnvironmentFile=-%h/.config/panopticon/digest.env
 # A backstop, not a bound the breakers guarantee (design §5.4). Killing a
 # run is safe: records are atomic and held markers are simply dropped.

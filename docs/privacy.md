@@ -101,12 +101,25 @@ endpoint, and nothing else:
 Never sent: the URL path or query, the page's links, capture timestamps,
 other pages, or any desktop or browser attention data.
 
-The provider is the user's choice; the endpoint must be `https`. The API key
-is read only from an environment variable, never from the config file. The
-client refuses redirects (so neither the key nor the page reaches another
-host), ignores `*_PROXY` variables and verifies certificates. Logs carry only
-the content hash, HTTP status and failure kind: never page text, request
-bodies, headers or credentials.
+The provider is the user's choice. The endpoint must be `https`, or `http` only
+to a loopback IP literal (127.0.0.0/8, `::1`, IPv4-mapped `::ffff:127.x`);
+`localhost` is refused because a name is resolved and the rule must not depend
+on resolution. Loopback has no network hop; everywhere else TLS protects both
+the key and the page text. The API key comes from an environment variable or a
+key file named in config, never from the config file itself. The client refuses
+redirects (so neither the key nor the page reaches another host), ignores
+`*_PROXY` variables and verifies certificates. Logs carry only the content
+hash, HTTP status and failure kind: never page text, request bodies, headers or
+credentials.
+
+A local gateway may store prompts in its local sqlite database, so the page
+text stays on the machine. Loopback `http` authenticates no server: if the
+gateway's socket-activated relay is down, another local process could bind the
+port and receive the key and page text. This is accepted for a single-user
+machine; a unix socket would be the authenticated alternative, but is not
+implemented. Records name the gateway endpoint and the gateway model name.
+Which upstream received the text follows from the gateway config and its
+model-naming convention, not from the record alone.
 
 Results are stored locally under `digest/`, keyed by content hash, so an
 unchanged page is sent at most once. Digests are model output about

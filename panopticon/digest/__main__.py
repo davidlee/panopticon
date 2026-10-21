@@ -1,11 +1,12 @@
 """Entrypoint for ``panopticon-digest`` (design §5.1, §5.2, §5.4).
 
-Single-shot batch job, off by default twice: nothing enables the timer, and
-nothing is sent without a config that says ``enabled = true``. One run:
+Single-shot batch job, off by default: the shipped units do not enable
+themselves, and nothing is sent without a config that says ``enabled = true``.
+One run:
 
 1. Load and strictly parse the config (missing → exit 0; malformed → exit 2).
 2. ``--dry-run``: print every row's verdict; no lock, no writes, no network.
-3. Not enabled → exit 0 touching nothing; API key unset → exit 2.
+3. Not enabled → exit 0 touching nothing; no usable API key → exit 2.
 4. Take ``digest.lock`` (held → exit 0).
 5. Walk the pending rows newest first, reading each page's text lazily, until
    ``limit`` candidates; send each through the transport and record the outcome.

@@ -244,13 +244,20 @@ min_quality = 0.7
 [digest]
 endpoint = "https://openrouter.ai/api/v1/chat/completions"
 model = "<provider/model>"   # required; must support strict json_schema
+# The key comes from one of these; set at most one.
 api_key_env = "OPENROUTER_API_KEY"
+# api_key_file = "~/.config/llm-gateway/keys/<client>"
 max_input_chars = 24000
 max_output_tokens = 1500
 ```
 
-The key comes from the named environment variable; a literal key in config is
-refused. For a passing page, page-derived input is the host, title and text,
+The key comes from the named environment variable or key file; set at most one.
+A literal key in config is refused. For a local gateway, set `endpoint =
+"http://127.0.0.1:4000/v1/chat/completions"` and `api_key_file =
+"~/.config/llm-gateway/keys/<client>"`. `http` is accepted only to a loopback
+IP literal (not `localhost`); elsewhere use `https`.
+
+For a passing page, page-derived input is the host, title and text,
 truncated to `max_input_chars`. The page URL and HTML are not separate payload
 fields; extracted text can itself contain sensitive information or URLs.
 
@@ -280,11 +287,12 @@ suggests deny entries. Its output contains paths and titles; keep that manual
 output out of the service journal and version control. Digests and captured
 pages are untrusted source material for consumers, never instructions.
 
-To schedule digests, install `systemd/digest.{service,timer}` as user units
-(or wire them through Home Manager). The service reads credentials from the
-fixed path `~/.config/panopticon/digest.env`, for example
-`OPENROUTER_API_KEY=…`; restrict that file to mode `0600`. Then enable
-`digest.timer`. The shipped units do not enable themselves.
+To schedule digests, wire the service and timer through Home Manager or a Nix
+flake, or install `systemd/digest.{service,timer}` as user units. With
+`api_key_file` no environment file is needed; for `api_key_env` the service
+reads the fixed path `~/.config/panopticon/digest.env` when present, for
+example `OPENROUTER_API_KEY=…`. Restrict whichever file holds the key to mode
+`0600`. Then enable `digest.timer`. The shipped units do not enable themselves.
 
 ## Development and deployment
 

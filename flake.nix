@@ -67,11 +67,14 @@
       # socket name carries a per-session suffix (niri.wayland-<id>.sock), so
       # both the env var and the bind resolve at launch time from the host's
       # $NIRI_SOCKET — the apiKeyPassThrough runtime-forward pattern, not a
-      # baked constant. Unset on the host -> empty setenv + /dev/null no-op
-      # bind, and the watcher backs off (compositor_disconnected) as designed.
+      # baked constant. Unset on the host -> no setenv + a bind-try of an
+      # absent path (skipped), and the watcher backs off
+      # (compositor_disconnected) as designed. Never fall back to /dev/null:
+      # bwrap mounts every --bind nodev, so it would shadow the --dev
+      # /dev/null and every open of it (each pi spawn) fails EACCES.
       niriOptions = with jailLib.combinators; [
-        (unsafe-add-raw-args "--setenv NIRI_SOCKET \"\${NIRI_SOCKET:-}\"")
-        (unsafe-add-raw-args "--bind-try \"\${NIRI_SOCKET:-/dev/null}\" \"\${NIRI_SOCKET:-/dev/null}\"")
+        (try-fwd-env "NIRI_SOCKET")
+        (try-readwrite (noescape "\"\${NIRI_SOCKET:-/nonexistent/niri.sock}\""))
       ];
 
       # Every jail reaches models through the local LLM gateway with the

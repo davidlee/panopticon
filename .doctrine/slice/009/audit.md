@@ -96,3 +96,23 @@ blocking was false (`open()` blocks first); fixed with `O_NONBLOCK`
 - `~/flakes` `features/attention/behaviour.nix` header calls the panopticon
   input `path:`; it is `github:`.
 - Nothing alerts on a failed scheduled run (design R2); the journal only.
+
+## Reconciliation Outcome
+
+No governance or spec targets (no ADR, policy, standard or requirement is
+touched); no REV.
+
+Direct edits to `design.md` (user-confirmed, 2026-10-22):
+- §5.2 KeyFile: `O_NONBLOCK | O_NOCTTY`, `fstat` on the open fd (PHASE-01
+  finding; finding 8).
+- §5.2 key check: visible-ASCII token `[!-~]+` replaces the
+  whitespace/control check (findings 1, 3).
+- D1 and the §5.2 config table: endpoint printable ASCII, no spaces
+  (finding 6).
+
+Findings 2, 4, 5, 7, 9–12 change code, docs or tests only (or are accepted,
+7); no design change.
+
+Harvest: no memory recorded. The durable facts (endpoint rule, key file,
+gateway hop) live in README and `docs/privacy.md`; the review findings live
+here. Consciously rejected.

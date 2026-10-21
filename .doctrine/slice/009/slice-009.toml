@@ -1,7 +1,7 @@
 id = 9
 slug = "digest-via-gateway"
 title = "digest: scheduled run through the LLM gateway"
-status = "started"
+status = "done"
 created = "2026-10-20"
 updated = "2026-10-21"
 tags = []

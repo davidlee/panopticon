@@ -67,7 +67,7 @@ timer (daily) ─▶ panopticon-digest ──http, loopback──▶ LLM gateway
 | key            | rule                                                                 |
 |----------------|----------------------------------------------------------------------|
 | `endpoint`     | `https://<host>…`, or `http://<loopback IP literal>…` (D1); no      |
-|                | userinfo (`@`), a valid port if any                                  |
+|                | userinfo (`@`), a valid port if any; printable ASCII, no spaces     |
 | `api_key_env`  | unchanged                                                            |
 | `api_key_file` | new; non-empty string, absolute or `~/…` (D2)                        |
 
@@ -87,16 +87,20 @@ and `pathlib` (`tests/test_digest_purity.py`).
 (→ exit 2). It runs where the env read runs today: after `--dry-run` and the
 `enabled` check, so a disabled config never needs a key.
 - `KeyEnv(name)`: as today.
-- `KeyFile(path)`: `Path(path).expanduser()`, then open it and require a
-  regular file (`fstat`, so a FIFO cannot block the run); read at most 4 KiB
+- `KeyFile(path)`: `Path(path).expanduser()`, then open it
+  `O_NONBLOCK | O_NOCTTY` and require a regular file (`fstat` on the open
+  fd), so a FIFO cannot block the run and a tty is not acquired (a plain
+  `open()` blocks on a FIFO before `fstat` runs); read at most 4 KiB
   as UTF-8; more than that is an error. Any `OSError`, `UnicodeDecodeError`
   or `RuntimeError` (unresolvable `~`) logs the path and
   `type(e).__name__` only: never `str(e)` or a traceback, since a decode
   error carries the raw bytes. One trailing `\n` is removed (the gateway
   writes key + `\n`).
-- The existing whitespace/control check then applies to both; its message
-  names the source ("environment variable X" / "key file P"). CRLF and a
-  BOM fail it, closed.
+- Both sources must then be a visible-ASCII token (`[!-~]+`): a header-safe
+  Bearer value (audit finding 1: a printable non-ASCII key crashed
+  `http.client` with the header in the exception). The message names the
+  source ("environment variable X" / "key file P"). CRLF, a BOM, inner
+  spaces and non-ASCII fail it, closed.
 
 **Units** (`~/flakes/features/attention/behaviour.nix`): `panopticon-digest`
 service (oneshot, absolute store path, `-v`, `TimeoutStartSec=2h`) and timer
@@ -140,7 +144,10 @@ None open.
   refused: `urlsplit` reports the host after `@`, but urllib connects to the
   whole `user@host` string, and the userinfo would also land in every
   record's `endpoint`. The port is read inside the `try`, so a bad port is a
-  config error (exit 2), not a run of transport failures.
+  config error (exit 2), not a run of transport failures. The whole endpoint
+  must be printable ASCII without spaces, checked before `urlsplit`, which
+  silently strips tabs, newlines and leading control characters (audit
+  finding 6).
   `_is_https_url` becomes `_is_endpoint_url`; the error text says
   "an https:// URL, or http:// to a loopback IP". The client needs no change:
   its opener already handles http, and proxies stay ignored.

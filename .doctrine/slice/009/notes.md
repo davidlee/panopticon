@@ -12,7 +12,29 @@ fresh-as-of: <yyyy-mm-dd> · <PHASE-NN | stage> · <head-commit>
 
 ### Learned
 
+- PHASE-01: design §5.2 says `fstat` stops a FIFO blocking the run, but
+  `open()` blocks on a writerless FIFO before `fstat` runs. The key file is
+  opened `O_NONBLOCK` (test: `..._key_file_is_a_fifo`).
+- PHASE-01: "inner whitespace" (VT-2) is the existing check: control
+  characters and leading/trailing whitespace. An inner plain space is
+  printable and passes; left as designed ("the existing check applies").
+
+- PHASE-03 (2026-10-22), live, through the gateway with
+  `openrouter/openai/gpt-4.1-mini`:
+  - VH-0: `--limit 3 -v` → digested=3, failure_markers=0,
+    provider_failures=0. The strict `response_format` survives LiteLLM.
+    A new record carries the gateway endpoint and model.
+  - VH-1: `systemctl --user start panopticon-digest` → Result=success,
+    digested=50 (the `max_pages_per_run` cap), no failures; the timer is
+    listed with a next run.
+  - VH-2: `--audit` → exit 0, one summary line, same shape as before.
+
 ### Open
+
+- Backlog: ~120 gate-passing pages remain after VH-1; daily runs of 50
+  clear it in a few days, or a manual `--limit` run sooner.
+- `~/flakes` `features/attention/behaviour.nix` header still says the
+  panopticon input is `path:`; it is `github:`.
 
 ## Spike: the gateway and the routing pin (2026-10-20)
 

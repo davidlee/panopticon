@@ -89,18 +89,16 @@ def run_loop(
 
 
 def _cmd_install_manifest(args: argparse.Namespace) -> int:
-    manifest = install_mod.build_manifest(
-        install_mod.resolve_host_binary(args.binary),
-        extension_id=args.extension_id,
-    )
+    try:
+        host_binary = install_mod.resolve_host_binary(args.binary)
+    except (FileNotFoundError, ValueError) as e:
+        log.error("%s", e)
+        return 1
+    manifest = install_mod.build_manifest(host_binary, extension_id=args.extension_id)
     if args.print:
         sys.stdout.write(manifest.to_json() + "\n")
         return 0
-    target = install_mod.install(
-        binary=args.binary,
-        extension_id=args.extension_id,
-        manifest_path=args.manifest_path,
-    )
+    target = install_mod.install(manifest, args.manifest_path)
     log.info("wrote manifest to %s", target)
     sys.stdout.write(f"{target}\n")
     return 0

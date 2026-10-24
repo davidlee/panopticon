@@ -42,7 +42,10 @@ panopticon-firefox-host install-manifest
 
 This writes `~/.mozilla/native-messaging-hosts/panopticon_firefox.json`
 pointing at the absolute path of `panopticon-firefox-host` on your
-`PATH`. The manifest allowlists this extension's ID
+`PATH`. Symlinks are kept, so a Nix profile path
+(`~/.nix-profile/bin/…`) follows rebuilds. A path inside `/nix/store` is
+refused — garbage collection would delete it and silently stop capture —
+so run this outside `nix shell`/`nix develop`, or pass `--binary`. The manifest allowlists this extension's ID
 (`panopticon-firefox@panopticon.local`).
 
 To preview without writing:

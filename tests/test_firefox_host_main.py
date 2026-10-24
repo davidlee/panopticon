@@ -7,6 +7,8 @@ import json
 import struct
 from pathlib import Path
 
+import pytest
+
 from panopticon.firefox_host import install as install_mod
 from panopticon.firefox_host.__main__ import main, run_loop
 from panopticon.ingest.content import ContentStore, content_dir
@@ -193,6 +195,43 @@ def test_install_manifest_writes_file(tmp_path: Path) -> None:
     assert rc == 0
     parsed = json.loads(target.read_text())
     assert parsed["path"] == str(fake_bin)
+
+
+def test_install_manifest_keeps_profile_symlink(
+    tmp_path: Path, capsys: object, monkeypatch: object
+) -> None:
+    """A profile symlink survives rebuilds; its store target does not."""
+    real_bin = tmp_path / "store" / "panopticon-firefox-host"
+    real_bin.parent.mkdir()
+    real_bin.write_text("#!/bin/sh\nexit 0\n")
+    real_bin.chmod(0o755)
+    profile_bin = tmp_path / "profile" / "bin"
+    profile_bin.mkdir(parents=True)
+    (profile_bin / "panopticon-firefox-host").symlink_to(real_bin)
+    monkeypatch.setenv("PATH", str(profile_bin))  # type: ignore[attr-defined]
+    rc = main(["install-manifest", "--print"])
+    assert rc == 0
+    parsed = json.loads(capsys.readouterr().out)  # type: ignore[attr-defined]
+    assert parsed["path"] == str(profile_bin / "panopticon-firefox-host")
+
+
+def test_install_manifest_refuses_nix_store_path(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Garbage collection deletes store paths; the manifest would dangle."""
+    target = tmp_path / "manifest.json"
+    rc = main(
+        [
+            "install-manifest",
+            "--binary",
+            "/nix/store/abc-panopticon-0.2.1/bin/panopticon-firefox-host",
+            "--manifest-path",
+            str(target),
+        ]
+    )
+    assert rc == 1
+    assert not target.exists()
+    assert "--binary" in caplog.text
 
 
 # ── content extraction routing ───────────────────────────────────────

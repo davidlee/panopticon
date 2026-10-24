@@ -18,6 +18,7 @@ from panopticon.fsutil import atomic_write_text
 HOST_NAME = "panopticon_firefox"
 EXTENSION_ID = "panopticon-firefox@panopticon.local"
 DESCRIPTION = "Panopticon Firefox capture bridge"
+NIX_STORE = Path("/nix/store")
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,26 +61,30 @@ def default_manifest_path() -> Path:
 
 
 def resolve_host_binary(explicit: str | None = None) -> str:
-    """Find the absolute path to the host binary."""
-    if explicit:
-        return str(Path(explicit).resolve())
-    found = shutil.which("panopticon-firefox-host")
+    """Find the absolute path to the host binary.
+
+    Symlinks are kept, not followed: a Nix profile link
+    (``~/.nix-profile/bin/…``) tracks rebuilds, while its store target
+    is deleted by garbage collection and would leave the manifest
+    dangling. A path that is itself in the store is refused.
+    """
+    found = explicit or shutil.which("panopticon-firefox-host")
     if found is None:
         raise FileNotFoundError(
             "panopticon-firefox-host not on PATH; pass --binary to set it explicitly"
         )
-    return str(Path(found).resolve())
+    path = Path(found).absolute()
+    if path.is_relative_to(NIX_STORE):
+        raise ValueError(
+            f"{path} is in the Nix store and will dangle after garbage "
+            "collection; pass --binary with a profile path, e.g. "
+            "~/.nix-profile/bin/panopticon-firefox-host"
+        )
+    return str(path)
 
 
-def install(
-    *,
-    binary: str | None = None,
-    extension_id: str = EXTENSION_ID,
-    manifest_path: Path | None = None,
-) -> Path:
+def install(manifest: Manifest, manifest_path: Path | None = None) -> Path:
     """Write the manifest. Returns the path written."""
-    host_binary = resolve_host_binary(binary)
-    manifest = build_manifest(host_binary, extension_id=extension_id)
     target = manifest_path or default_manifest_path()
     atomic_write_text(target, manifest.to_json() + "\n")
     return target

@@ -32,5 +32,9 @@ fetch-extension version="":
 install-manifest:
     panopticon-firefox-host install-manifest
 
+# Markdown path of the newest captured page, or of URL's — hand it to an agent.
+content-path url="":
+    @uv run python -m tools.content_path {{ if url == "" { "" } else { quote(url) } }}
+
 alias sign := sign-extension
 alias fetch := fetch-extension

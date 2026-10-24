@@ -74,18 +74,14 @@ def validate_and_redact(
     if event not in ALLOWED_EVENT_TYPES:
         raise ValidationError(f"unknown event type: {event!r}")
 
-    fields = {
-        k: v
-        for k, v in message.items()
-        if k not in ("event", "ts", "v", "source")
-    }
+    fields = {k: v for k, v in message.items() if k not in ("event", "ts", "v", "source")}
 
     if fields.get("incognito") is True:
         raise ValidationError("incognito event dropped at host")
 
     url = fields.get("url")
     if isinstance(url, str) and url:
-        redacted = _redact_url(url, record_file_urls=record_file_urls)
+        redacted = redact_url(url, record_file_urls=record_file_urls)
         if redacted is None:
             raise ValidationError(f"sensitive scheme dropped: {url[:32]}")
         fields["url"] = redacted
@@ -96,7 +92,7 @@ def validate_and_redact(
     return event, ts, fields
 
 
-def _redact_url(url: str, *, record_file_urls: bool) -> str | None:
+def redact_url(url: str, *, record_file_urls: bool) -> str | None:
     """Strip fragment and query, except the host's identity params; drop
     sensitive schemes. Returns ``None`` to drop."""
     try:

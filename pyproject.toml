@@ -10,6 +10,8 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# panopticon-keyrate's device reader; tests run without it.
+keyrate = ["evdev>=1.6"]
 dev = [
   "pytest>=8",
   "pytest-asyncio>=0.23",
@@ -23,6 +25,7 @@ panopticon-segmentize = "panopticon.segmentizer.__main__:main"
 panopticon-firefox-host = "panopticon.firefox_host.__main__:main"
 panopticon-git = "panopticon.git_poller.__main__:main"
 panopticon-digest = "panopticon.digest.__main__:main"
+panopticon-keyrate = "panopticon.keyrate.__main__:main"
 
 [build-system]
 requires = ["hatchling"]

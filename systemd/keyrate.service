@@ -1,0 +1,13 @@
+[Unit]
+Description=panopticon — key and pointer activity per minute, live rate socket
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=panopticon-keyrate
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=graphical-session.target

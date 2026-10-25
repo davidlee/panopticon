@@ -24,6 +24,7 @@ Consumers must skip lines whose `v` they don't understand.
   `source:"desktop"` (`raw/desktop-*.jsonl`).
 - `firefox` — active-tab attention events from the Firefox WebExtension
   via `panopticon-firefox-host`.
+- `keyrate` — per-minute key and pointer counts from `panopticon-keyrate`.
 - `sway` — **retired historical source.** Pre-migration builds wrote
   `source:"sway"` / `raw/sway-*.jsonl`; running Sway now writes `desktop`
   (with `producer:"sway"`). Existing `sway` raws are frozen and age out of
@@ -104,6 +105,25 @@ sensitive schemes are dropped at both the extension and the host.
 URL-bearing events include `url`, `domain`, `window_id`, `tab_id`,
 `incognito: false`. Incognito events are dropped before they reach the
 host.
+
+## Keyrate events
+
+Emitted by `panopticon-keyrate` from every keyboard and pointer evdev device
+(virtual-bus uinput devices excluded). One event per wall-clock minute that saw
+any activity; quiet minutes are not written. `ts` is the minute's start.
+
+- `keyrate_minute` — fields:
+  - `keys` — key presses, excluding modifiers (ctrl, shift, alt, meta, caps
+    lock), releases and autorepeat;
+  - `key_seconds` — seconds of the minute with at least one key press;
+  - `pointer_seconds` — seconds with any pointer motion, scroll, touch or
+    button press;
+  - `peak_5s_cpm` — the busiest five seconds within the minute, as keys per
+    minute.
+
+The live socket (`$XDG_RUNTIME_DIR/panopticon/keyrate.sock`) is not a raw
+stream: one JSON object per line, once a second, with `cpm_5s`, `cpm_60s`,
+`pointer_seconds_60s` and `devices` (watched device count).
 
 ## Segments
 

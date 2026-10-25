@@ -32,6 +32,30 @@ Redaction policy lives downstream:
 3. **Consumer-level** aggregation (`agg=app_histogram`) omits titles
    entirely.
 
+## Keyrate
+
+`panopticon-keyrate` reads every keyboard and pointer through evdev
+(`/dev/input`), so it works under any compositor or none.
+
+Captures, per wall-clock minute:
+
+- how many keys were pressed (not modifiers, releases or autorepeat)
+- how many seconds had a key press, and how many had pointer activity
+- the busiest five seconds' key rate
+
+Does **not** capture:
+
+- which key was pressed: the code is dropped as each event is counted
+- when any single event happened: inter-key timing is a side channel that can
+  reveal passwords and text, so the finest stored grain is a minute and the
+  live feed's is a second
+- input from virtual-bus (uinput) devices: software typing, not the user
+
+The live feed is a Unix socket under `$XDG_RUNTIME_DIR`, mode 0600 in a 0700
+directory; no network. Reading `/dev/input` needs membership of the `input`
+group, which lets *every* process of that user read raw keystrokes; that
+standing exposure predates keyrate and is tracked as RSK-002.
+
 ## Firefox extension + native host
 
 Captures:

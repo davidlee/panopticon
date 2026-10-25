@@ -24,6 +24,7 @@ default and has its own local gate, configuration and timer.
 | Desktop: Sway, Niri or Umbriel | Window focus, application, title, workspace and output, through compositor IPC | Current focus and time spent in applications |
 | Firefox attention | Active tabs, redacted URLs, titles, navigation, browser focus and idle signals | Recent browser attention and time by domain |
 | Firefox page content | Mozilla Readability extraction after 30 seconds of dwell or an explicit right-click action | Searchable text of pages I visited |
+| Keyboard and pointer activity | Per minute: key presses (not modifiers or autorepeat), seconds with typing, seconds with pointer activity. Read from evdev, so any compositor. A live rate on a local socket | Typing versus reading versus idle; a rate for a status bar |
 | Local Git repositories | Commits across local branches under `~/dev/*`, polled from the host | Project activity, including commits made inside jails |
 | Optional page digest | Summary, claims, entities and an advisory privacy classification | A compact account of captured reading |
 
@@ -104,7 +105,8 @@ already present in the relevant day file. It needs no Git hook, fetch or push.
 ~/.local/state/behaviour/
 ├── raw/
 │   ├── desktop-YYYY-MM-DD.jsonl
-│   └── firefox-YYYY-MM-DD.jsonl
+│   ├── firefox-YYYY-MM-DD.jsonl
+│   └── keyrate-YYYY-MM-DD.jsonl
 ├── current/
 │   └── desktop.json
 ├── segments/
@@ -127,6 +129,7 @@ already present in the relevant day file. It needs no Git hook, fetch or push.
 | Tier | Retention |
 |---|---|
 | Raw events | Seven days; deletion requires a matching derived segment file |
+| Keyrate minutes (`raw/keyrate-*`) | Kept indefinitely: no segment is derived from them yet, so raw retention leaves them |
 | Segments, including Git | 90 days |
 | Daily histograms | Kept indefinitely |
 | Extracted content and digests | No automatic retention yet |
@@ -153,6 +156,8 @@ timestamps. They are not schema-v1 events.
 ## Privacy boundaries
 
 - No keystrokes, clipboard, screenshots or terminal output are captured.
+  `panopticon-keyrate` counts key presses per minute; it never records which
+  key, nor when any single press happened.
 - Desktop and browser titles are stored verbatim and may contain sensitive
   text or paths. URL filtering does not sanitize titles or extracted bodies.
 - Firefox URLs retain the host and path. Queries and fragments are stripped,
@@ -178,7 +183,7 @@ You need Linux with Sway, Niri or Umbriel for desktop capture, and Firefox with
 the extension for browser capture. The Python package requires Python 3.12+.
 
 ```sh
-# Nix package (all six entrypoints)
+# Nix package (all seven entrypoints)
 nix build .#panopticon
 
 # Or install into a local virtual environment
@@ -219,6 +224,18 @@ jq '.per_app_seconds, .per_domain_seconds' \
 
 These commands use the default state path; adjust it if `XDG_STATE_HOME` is
 set. Use `--help` for per-command root overrides and logging options.
+
+### Keyboard and pointer rate
+
+```sh
+panopticon-keyrate -v
+# Live rate, one JSON line a second — e.g. for a bar:
+socat -u UNIX-CONNECT:$XDG_RUNTIME_DIR/panopticon/keyrate.sock -
+```
+
+It reads `/dev/input`, so the user must be in the `input` group (RSK-002).
+Until SATAN reads `raw/keyrate-*`, it also writes the retired wpm-daemon's TSV
+to `$XDG_STATE_HOME/satan/log/wpm/` (`--no-legacy` to stop; IMP-005).
 
 ### Page digest (opt-in egress)
 
@@ -323,7 +340,9 @@ work; Firefox already supplies its own idle signals. Bookmark backfill and
 capture are proposed (IDE-001), not implemented. Automatic content retention
 (RSK-001), host-side capture/redaction configuration (IDE-003), and wildcard
 path segments in digest deny entries (IDE-005) also remain open. Current deny
-paths are literal prefixes, not glob patterns.
+paths are literal prefixes, not glob patterns. The keyrate cutover (SATAN
+reads the raw stream; the legacy TSV goes) is IMP-005, and `input` group
+membership is RSK-002.
 
 ## License
 

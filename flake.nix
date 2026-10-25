@@ -30,7 +30,7 @@
         pyproject = true;
         src = ./.;
         build-system = with pkgs.python3Packages; [hatchling];
-        dependencies = with pkgs.python3Packages; [i3ipc lxml markdownify];
+        dependencies = with pkgs.python3Packages; [evdev i3ipc lxml markdownify];
         # git: the git-poller suite (tests/test_git_poller.py) shells out to a
         # real git binary — the sandbox has none unless we add it here.
         nativeCheckInputs =
@@ -46,6 +46,7 @@
       projectPkgs = with pkgs; [
         (python3.withPackages (ps:
           with ps; [
+            evdev
             i3ipc
             pytest
             pytest-asyncio

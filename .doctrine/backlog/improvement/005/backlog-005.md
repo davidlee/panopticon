@@ -44,7 +44,7 @@ laptop keyboard).
                                              │  key press (not modifier,
                                              │  not autorepeat) → keys++
                                              │  pointer motion/button/wheel
-                                             │  → pointer++
+                                             │  → mark the second
                                              │  code discarded on the spot
                                              ▼
                           ┌──────────────────┼────────────────────┐
@@ -62,9 +62,9 @@ laptop keyboard).
 - **Shell**: device discovery (keyboard = has `KEY_A`; pointer = has
   `REL_X` or `BTN_LEFT`), hotplug rescan, selector loop, the writers, the
   socket server.
-- **Minute row**: `ts` (minute start), `keys`, `pointer`, `active_seconds`
-  (seconds with any key press), `peak_5s_cpm`. Schema in `docs/schema.md`.
-  Minutes with no activity are not written.
+- **Minute row**: `ts` (minute start), `keys`, `key_seconds` (seconds with
+  any key press), `pointer_seconds`, `peak_5s_cpm`. Schema in
+  `docs/schema.md`. Minutes with no activity are not written.
 - **Legacy TSV**: same path and four columns as today, so SATAN needs no
   change. Behaviour change: modifiers no longer counted, so `keys` and
   `peak_5s_wpm` read ~20–30% lower; `active_seconds` (what the sensor uses)
@@ -98,3 +98,26 @@ Nothing breaks at any step: SATAN keeps reading the TSV until step 2 lands.
 
 Later, optional: the segmentizer joins minute rows with focus segments
 ("typing in Emacs", "reading in Firefox").
+
+## Decisions taken while building step 1 (2026-10-26)
+
+- **Pointer activity is seconds, not events.** A mouse reports motion at
+  its polling rate (up to 1 kHz), so a raw event count measures the mouse,
+  not the user. `pointer_seconds` counts seconds with any pointer event.
+- **Virtual-bus devices are not watched.** `vicinae-snippet-virtual-keyboard`
+  (bus `0x06`, uinput) types snippets for the user. Excluded by bus type, not
+  by `/sys/devices/virtual`: BLE keyboards (uhid) live there too but report
+  bus `0x05`.
+- **Device classes**: keyboard = has `KEY_A`; pointer = `REL_X`, or
+  `BTN_TOUCH` / `BTN_TOOL_PEN` (touchpad, tablet).
+- **Raw keyrate files are kept indefinitely.** Raw retention deletes a day
+  only once a segment exists for it; none is derived from keyrate yet.
+  At most ~1,440 short lines a day. Revisit with the optional segmentizer
+  join.
+- **`evdev` is an optional extra** (`.[keyrate]`); only
+  `panopticon/keyrate/devices.py` imports it, so the suite runs without it.
+  The nix package includes it.
+- **Socket paths are capped at 108 bytes** (`AF_UNIX`). The default under
+  `$XDG_RUNTIME_DIR` is far inside; a long `--socket` fails at startup.
+- **Cutover ordering (`~/flakes`)**: `panopticon-keyrate` and the removal of
+  `wpm-daemon` must land in one switch, or both append to the same TSV.

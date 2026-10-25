@@ -92,7 +92,8 @@ Nothing breaks at any step: SATAN keeps reading the TSV until step 2 lands.
    socket. **`~/flakes`**: replace `wpm-daemon` with it; keep `wpm-archive`
    (it only rewrites files).
 2. **SATAN**: `satan-sensor-wpm.el` reads `raw/keyrate-*` and adds a reading
-   state (few keys, pointer activity).
+   state (few keys, pointer activity). Tracked in SATAN as IMP-055 (`~/dev/satan`),
+   which also carries the step 3 checklist.
 3. **Cleanup**: drop the legacy TSV writer from panopticon; drop
    `wpm-archive` and `wpm-status.py` from `~/flakes`.
 

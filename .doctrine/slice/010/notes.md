@@ -6,13 +6,20 @@ disposable phase sheet (`.doctrine/state/.../phase-NN.md`) that must survive
 
 ## Harvest
 <!-- single-copy: updated in place each harvest; ids only, never restated content -->
-fresh-as-of: <yyyy-mm-dd> · <PHASE-NN | stage> · <head-commit>
+fresh-as-of: 2026-10-27 · reconcile · fbf0036
 
 ### Produced
 
+- PHASE-01 35536ef, PHASE-02 a7367d0, PHASE-03 dda26e9; release a09802e
+  (flake 0.3.0, extension 0.3.0 signed). IMP-004 resolved.
+
 ### Learned
 
+- audit.md F1; § Durable below.
+
 ### Open
+
+- audit.md F2 (accepted); § Out of scope candidates; CHR-003, ISS-002.
 
 ## Review passes
 

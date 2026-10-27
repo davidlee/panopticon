@@ -35,7 +35,7 @@
 
       panopticon = pkgs.python3Packages.buildPythonApplication {
         pname = "panopticon";
-        version = "0.2.1";
+        version = "0.3.0";
         pyproject = true;
         src = ./.;
         build-system = with pkgs.python3Packages; [hatchling];

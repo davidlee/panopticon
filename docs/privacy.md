@@ -85,6 +85,13 @@ so a buggy or hostile extension cannot bypass the policy by skipping its
 own filter. The host always re-stamps `source="firefox"`; the extension
 cannot lie about provenance.
 
+After a manual "Extract page content for Panopticon", the host replies
+over the native port with the local path of the stored Markdown. The
+extension writes that path to the clipboard (it never reads the
+clipboard) and shows a notification with fixed text only: never the
+path, URL or page title, since notification centres can mirror to the
+lock screen. Dwell extractions get no reply.
+
 The downstream segmentizer joins `browser_tab_segment` against
 `focus_segment` to discount in-browser dwell that happened while the
 compositor was focused on another application.

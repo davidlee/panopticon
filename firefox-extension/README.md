@@ -129,6 +129,32 @@ Expected:
 - `~/.local/state/behaviour/histograms/daily-$(date +%F).json` contains
   a `per_domain_seconds` bucket.
 
+## Manual capture: the path comes back
+
+The context-menu item "Extract page content for Panopticon" sends the
+page with `trigger: "manual"` and a random `id`; the 30 s dwell timer
+sends `trigger: "dwell"`. The port is two-way: after a manual send the
+host writes one reply, and nothing for dwell.
+
+```json
+{"type": "content_path", "id": "<echoed>", "ok": true, "path": "/…/content/ab/ab12….md", "hash": "ab12…"}
+{"type": "content_path", "id": "<echoed>", "ok": false, "reason": "extraction_error | empty_content | store_failed"}
+```
+
+On success the extension copies `path` to the clipboard and notifies
+"Markdown path copied to clipboard". A failure, a refused clipboard
+write, or no reply within 10 s (or the port dropping) each produce one
+notification. Notifications carry fixed text only. Host→extension
+messages are keyed by `type`; unknown types are ignored, so later kinds
+(IDE-003's settings push) fit the same envelope.
+
+Permissions this needs: `clipboardWrite` (the reply arrives after the
+click's user gesture has ended) and `notifications`.
+
+Manual check: extract a page → notification and a pasteable path that
+exists; extract it again → the same path; wait out a dwell → no
+notification; stop the host and extract → "No reply" notification.
+
 ## Notes
 
 - The host name is `panopticon_firefox` (the underscore is required by

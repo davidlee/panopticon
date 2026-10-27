@@ -45,6 +45,9 @@ const TRIGGERS = ["manual", "dwell"];
 const STATE_KEY = "panopticon.state";
 const RECONNECT_MIN_MS = 1000;
 const RECONNECT_MAX_MS = 30000;
+// A connection this long-lived proves the host runs; only then does the
+// backoff reset, so a host that dies at start keeps backing off (ISS-004).
+const RECONNECT_STABLE_MS = 10000;
 const DWELL_MS = 30000; // seconds before attempting Readability extraction
 const REPLY_TIMEOUT_MS = 10000; // manual requests are answered or forgotten
 const MENU_ID = "panopticon-extract";
@@ -53,6 +56,7 @@ const NO_REPLY =
 
 let port = null;
 let reconnectDelay = RECONNECT_MIN_MS;
+let connectedAt = 0;
 let connecting = false;
 let dwellTimer = null;
 let extractedUrls = new Set(); // URLs already extracted this session
@@ -63,12 +67,15 @@ function connect() {
   connecting = true;
   try {
     port = browser.runtime.connectNative(HOST_NAME);
-    reconnectDelay = RECONNECT_MIN_MS;
+    connectedAt = Date.now();
     port.onMessage.addListener(onHostMessage);
     port.onDisconnect.addListener(() => {
       const err = port && port.error;
       console.warn("[panopticon] native host disconnected", err);
       port = null;
+      if (Date.now() - connectedAt >= RECONNECT_STABLE_MS) {
+        reconnectDelay = RECONNECT_MIN_MS;
+      }
       // Every manual request still awaiting a reply ends here, exactly once
       // (D10): drop its timer and say so.
       for (const id of [...pending.keys()]) {

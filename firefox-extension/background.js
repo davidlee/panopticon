@@ -37,17 +37,26 @@ const IDENTITY_PARAMS = {
   "m.youtube.com": ["v"]
 };
 
+// Source of a content extraction, tagged at the call site (SL-010 D3). Must
+// equal TRIGGERS in panopticon/firefox_host/validate.py — a host test parses
+// this literal, so keep it strict JSON.
+const TRIGGERS = ["manual", "dwell"];
+
 const STATE_KEY = "panopticon.state";
 const RECONNECT_MIN_MS = 1000;
 const RECONNECT_MAX_MS = 30000;
 const DWELL_MS = 30000; // seconds before attempting Readability extraction
+const REPLY_TIMEOUT_MS = 10000; // manual requests are answered or forgotten
 const MENU_ID = "panopticon-extract";
+const NO_REPLY =
+  "No reply from Panopticon; the path is still available with `just content-path`";
 
 let port = null;
 let reconnectDelay = RECONNECT_MIN_MS;
 let connecting = false;
 let dwellTimer = null;
 let extractedUrls = new Set(); // URLs already extracted this session
+const pending = new Map(); // manual request id -> reply timeout id (R3)
 
 function connect() {
   if (port || connecting) return;
@@ -55,13 +64,20 @@ function connect() {
   try {
     port = browser.runtime.connectNative(HOST_NAME);
     reconnectDelay = RECONNECT_MIN_MS;
-    console.log("[panopticon] connected to native host", HOST_NAME);
+    port.onMessage.addListener(onHostMessage);
     port.onDisconnect.addListener(() => {
       const err = port && port.error;
       console.warn("[panopticon] native host disconnected", err);
       port = null;
+      // Every manual request still awaiting a reply ends here, exactly once
+      // (D10): drop its timer and say so.
+      for (const id of [...pending.keys()]) {
+        cancelPending(id);
+        notify(NO_REPLY);
+      }
       scheduleReconnect();
     });
+    console.log("[panopticon] connected to native host", HOST_NAME);
   } catch (e) {
     console.error("[panopticon] connectNative threw", e);
     port = null;
@@ -77,19 +93,72 @@ function scheduleReconnect() {
   setTimeout(connect, delay);
 }
 
+// Returns false when the message could not be posted (no port, or the port
+// threw); callers that owe the user a notification need to know.
 function send(message) {
   if (!port) connect();
   if (!port) {
     console.warn("[panopticon] dropping event, no port", message.event);
-    return;
+    return false;
   }
   try {
     port.postMessage(message);
     console.log("[panopticon] sent", message.event, message.url || "");
+    return true;
   } catch (e) {
     console.error("[panopticon] postMessage threw", e);
     port = null;
     scheduleReconnect();
+    return false;
+  }
+}
+
+// Fixed text only — never the path, URL or page title (SL-010 EX-2):
+// notification centres mirror to lock screens.
+function notify(message) {
+  try {
+    browser.notifications
+      .create({
+        type: "basic",
+        iconUrl: "icons/icon-48.png",
+        title: "Panopticon",
+        message,
+      })
+      .catch((e) => console.warn("[panopticon] notification failed", e.message));
+  } catch (e) {
+    console.warn("[panopticon] notification threw", e.message);
+  }
+}
+
+function cancelPending(id) {
+  // Returns false when the request was already settled (reply, timeout or
+  // disconnect) — that one has had its single notification.
+  const timer = pending.get(id);
+  if (timer === undefined) return false;
+  clearTimeout(timer);
+  pending.delete(id);
+  return true;
+}
+
+// Host → extension replies (design §5.2). Dispatch on `type`; anything else
+// is a kind this version doesn't know (IDE-003 adds more) and is ignored.
+async function onHostMessage(msg) {
+  if (!msg || msg.type !== "content_path") {
+    console.debug("[panopticon] ignoring host message", msg && msg.type);
+    return;
+  }
+  if (!cancelPending(msg.id)) return; // unknown or already settled
+  if (!msg.ok) {
+    notify(`Capture failed: ${msg.reason}`);
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(msg.path);
+    notify("Markdown path copied to clipboard");
+  } catch (e) {
+    // R1: the write can be refused (focus, compositor). Say what happened.
+    console.warn("[panopticon] clipboard write failed", e.message);
+    notify("Page captured; copying the path failed");
   }
 }
 
@@ -162,7 +231,7 @@ function scheduleDwell(tabId, url) {
   if (!url || isSensitiveUrl(url)) return;
   if (isUrlExtracted(url)) return;
   dwellTimer = setTimeout(() => {
-    injectContentScript(tabId);
+    extract(tabId, "dwell");
   }, DWELL_MS);
 }
 
@@ -173,13 +242,75 @@ function clearDwell() {
   }
 }
 
-function injectContentScript(tabId) {
-  browser.scripting.executeScript({
-    target: { tabId },
-    files: ["Readability.js", "content.js"],
-  }).catch((e) => {
-    console.warn("[panopticon] content script injection failed", e.message);
-  });
+// Inject, then call panopticonExtract() and await its value: the article comes
+// back to this call, so the trigger is known from the call site and two
+// extractions on one tab can't be confused (D3).
+async function extract(tabId, trigger) {
+  const manual = trigger === "manual";
+  let article;
+  try {
+    await browser.scripting.executeScript({
+      target: { tabId },
+      files: ["Readability.js", "content.js"],
+    });
+    const [frame] = await browser.scripting.executeScript({
+      target: { tabId },
+      func: () => panopticonExtract(),
+    });
+    article = (frame && frame.result) || { error: "extraction_returned_nothing" };
+  } catch (e) {
+    console.warn("[panopticon] content extraction failed", e.message);
+    if (manual) notify("Capture failed: the page could not be read");
+    return;
+  }
+
+  const r = redact(article.url);
+  if (!r) {
+    console.warn("[panopticon] content extraction dropped, unsupported url");
+    if (manual) notify("Capture failed: unsupported page");
+    return;
+  }
+  recordExtractedUrl(r.url);
+
+  // One payload, one send site; trigger (and for manual the correlation id)
+  // spread in below.
+  const payload = {
+    event: "browser_content_extracted",
+    ts: nowIso(),
+    url: r.url,
+    domain: r.domain,
+    trigger,
+  };
+  if (article.error) {
+    payload.error = article.error;
+  } else {
+    payload.title = article.title || null;
+    payload.byline = article.byline || null;
+    payload.excerpt = article.excerpt || null;
+    payload.siteName = article.siteName || null;
+    payload.publishedTime = article.publishedTime || null;
+    payload.textContent = article.textContent || "";
+    payload.contentHtml = article.contentHtml || "";
+    payload.length = article.length || 0;
+    console.log("[panopticon] content extracted", trigger, article.title || r.url);
+  }
+
+  if (manual) {
+    const id = crypto.randomUUID();
+    payload.id = id;
+    // Register before sending: the reply can land before send() returns (D10).
+    pending.set(
+      id,
+      setTimeout(() => {
+        if (cancelPending(id)) notify(NO_REPLY);
+      }, REPLY_TIMEOUT_MS),
+    );
+    if (!send(payload) && cancelPending(id)) {
+      notify("Capture failed: not connected to the native host");
+    }
+    return;
+  }
+  send(payload);
 }
 
 function recordExtractedUrl(url) {
@@ -196,40 +327,6 @@ function isUrlExtracted(url) {
   const r = redact(url);
   return r !== null && extractedUrls.has(r.url);
 }
-
-browser.runtime.onMessage.addListener((msg) => {
-  if (msg.type !== "content_extracted") return;
-  const r = redact(msg.url);
-  if (!r) return;
-  recordExtractedUrl(r.url);
-
-  if (msg.error) {
-    send({
-      event: "browser_content_extracted",
-      ts: nowIso(),
-      url: r.url,
-      domain: r.domain,
-      error: msg.error,
-    });
-    return;
-  }
-
-  send({
-    event: "browser_content_extracted",
-    ts: nowIso(),
-    url: r.url,
-    domain: r.domain,
-    title: msg.title || null,
-    byline: msg.byline || null,
-    excerpt: msg.excerpt || null,
-    siteName: msg.siteName || null,
-    publishedTime: msg.publishedTime || null,
-    textContent: msg.textContent || "",
-    contentHtml: msg.contentHtml || "",
-    length: msg.length || 0,
-  });
-  console.log("[panopticon] content extracted", msg.title || msg.url);
-});
 
 async function emitForActiveTab(eventName, tab, extra = {}) {
   if (!tab || tab.incognito) return;
@@ -399,7 +496,7 @@ browser.menus.onClicked.addListener(async (info, tab) => {
   if (info.menuItemId !== MENU_ID) return;
   if (!tab || tab.incognito) return;
   clearDwell();
-  injectContentScript(tab.id);
+  extract(tab.id, "manual");
 });
 
 console.log("[panopticon] background script loaded");

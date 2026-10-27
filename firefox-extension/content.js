@@ -1,24 +1,18 @@
-// Panopticon content-extraction script. Injected by the background
-// script into pages the user has dwelled on for 30+ seconds.
-// Runs Mozilla Readability on a cloned DOM and sends the extracted
-// article object back to the background script.
+// Panopticon content-extraction script. Injected by the background script
+// (dwell timer and the manual "Extract page content" menu item), then
+// called directly: `executeScript({func: () => panopticonExtract()})`
+// returns the article object to the awaiting caller. No runtime message.
 
-(function () {
+function panopticonExtract() {
   try {
     var doc = document.cloneNode(true);
     var article = new Readability(doc).parse();
 
     if (!article) {
-      browser.runtime.sendMessage({
-        type: "content_extracted",
-        url: location.href,
-        error: "readability_returned_null",
-      });
-      return;
+      return { url: location.href, error: "readability_returned_null" };
     }
 
-    browser.runtime.sendMessage({
-      type: "content_extracted",
+    return {
       url: location.href,
       title: article.title,
       byline: article.byline || null,
@@ -28,12 +22,8 @@
       textContent: article.textContent,
       contentHtml: article.content,
       length: article.length,
-    });
+    };
   } catch (e) {
-    browser.runtime.sendMessage({
-      type: "content_extracted",
-      url: location.href,
-      error: e.message,
-    });
+    return { url: location.href, error: e.message };
   }
-})();
+}

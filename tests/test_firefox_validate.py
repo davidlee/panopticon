@@ -338,3 +338,36 @@ def test_trigger_and_id_only_on_content_events() -> None:
     )
     assert "trigger" not in fields
     assert "id" not in fields
+
+
+# ── extension static checks (SL-010 PHASE-02, VT-1) ──────────────────
+
+
+_EXTENSION = Path(__file__).parent.parent / "firefox-extension"
+
+
+def _version_tuple(version: str) -> tuple[int, ...]:
+    return tuple(int(part) for part in version.split("."))
+
+
+def test_extension_triggers_match_host() -> None:
+    """The extension's trigger tag must equal the validator's set (SL-010)."""
+    js = (_EXTENSION / "background.js").read_text()
+    m = re.search(r"const TRIGGERS = (\[.*?\]);", js, re.DOTALL)
+    assert m, "TRIGGERS not found in background.js"
+    assert json.loads(m.group(1)) == list(validate.TRIGGERS)
+
+
+def test_extension_listens_for_host_replies() -> None:
+    """The manual reply path needs a port listener (SL-010 D3)."""
+    js = (_EXTENSION / "background.js").read_text()
+    assert "port.onMessage.addListener" in js
+
+
+def test_extension_manifest_has_reply_permissions() -> None:
+    """Clipboard + notification permissions, and a version above 0.2.3."""
+    manifest = json.loads((_EXTENSION / "manifest.json").read_text())
+    permissions = manifest["permissions"]
+    assert "clipboardWrite" in permissions
+    assert "notifications" in permissions
+    assert _version_tuple(manifest["version"]) > (0, 2, 3)

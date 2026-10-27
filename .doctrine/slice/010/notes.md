@@ -37,7 +37,7 @@ PHASE-03 docs written by the orchestrator (cheaper than a brief).
   (`content/77/77ff9fb2….md`, exists). Pass.
 - "No reply" observed first, against a stale 0.2.1 host process Firefox had
   kept alive across the profile upgrade — the timeout notification works.
-- Not reported: same-page repeat → same path; dwell silent.
+- Same-page repeat → same path; dwell → no notification. Pass (user).
 
 ## Durable
 

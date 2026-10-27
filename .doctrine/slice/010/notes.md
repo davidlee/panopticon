@@ -1,0 +1,37 @@
+# Notes SL-010: content handoff: host replies with the captured page's path
+
+Durable per-slice scratchpad — tracked in git. The place to lift anything from a
+disposable phase sheet (`.doctrine/state/.../phase-NN.md`) that must survive
+`rm -rf` before the slice close-out audit harvests it.
+
+## Harvest
+<!-- single-copy: updated in place each harvest; ids only, never restated content -->
+fresh-as-of: <yyyy-mm-dd> · <PHASE-NN | stage> · <head-commit>
+
+### Produced
+
+### Learned
+
+### Open
+
+## Review passes
+
+| pass | who / profile | cost | outcome |
+|---|---|---|---|
+| design review | pi `review` (deepseek-flash, max) | $0.024 | 12 findings, all held on probe; design revised (35a9d12) |
+| PHASE-01 tests | pi `implement` | $0.037 | 29 red tests, sound; flagged VT-5 wording vs design |
+| PHASE-01 impl | pi `implement` | $0.023 | green first pass; orchestrator read full diff, no changes |
+
+What pi got wrong / gaps:
+- Test writer did not guard against `trigger` leaking onto non-content events
+  (would have reached the raw JSONL tier); orchestrator added the test.
+- Global quotient forms carried no python/uv → workers could not run tests
+  until the project forms landed (9fedb7a; `just quotient-forms`, `quotient allow`).
+
+## Durable
+
+- Duplicate-page replies depend on `ContentStore.store()` writing files
+  before its dedup check (commented at the call site). Reordering `store()`
+  breaks the duplicate reply silently.
+- `doctrine slice phases` (0.47.0) skipped PHASE-01 while reporting "up to
+  date"; its tracking sheet was hand-made.

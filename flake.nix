@@ -10,6 +10,11 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
     doctrine.url = "github:davidlee/doctrine";
+    # quotient's form-family builder, for quotientForms below.
+    quotient = {
+      url = "github:davidlee/quotient/v0.6.1";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs = {
@@ -19,6 +24,7 @@
     devshell,
     agents,
     doctrine,
+    quotient,
   }:
     flake-utils.lib.eachDefaultSystem (system: let
       pkgs = import nixpkgs {
@@ -137,6 +143,20 @@
           inherit gateway;
         };
       };
+
+      # quotient's per-call forms for this root (`quotient help form`): the
+      # jails quotient's `pi_agent` runs a delegate in, on the gateway's pi
+      # key, with the project's toolchain. `just quotient-forms`, then
+      # `quotient allow`.
+      quotientForms = pkgs.lib.optionalAttrs isLinux (let
+        family = jailLib.quotientFormFamily {
+          inherit quotient;
+          packages = projectPkgs ++ (with pkgs; [bash findutils gnugrep gnused gawk ripgrep fd git]);
+        };
+      in {
+        quotient-read = family.read;
+        quotient-write = family.write;
+      });
     in {
       packages =
         {
@@ -158,7 +178,8 @@
             ignoreCollisions = true;
           };
         }
-        // pkgs.lib.optionalAttrs isLinux jailPkgs;
+        // pkgs.lib.optionalAttrs isLinux jailPkgs
+        // quotientForms;
 
       devShells.default = pkgs.devshell.mkShell {
         packages =

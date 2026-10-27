@@ -536,13 +536,35 @@
         "type": "github"
       }
     },
+    "quotient": {
+      "inputs": {
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1793074058,
+        "narHash": "sha256-e4NsCP192YG/JtJcFUj31eCIy2dHjcbQZmVDgON5xXk=",
+        "owner": "davidlee",
+        "repo": "quotient",
+        "rev": "1f18594f3a390504d9f4cc83288f7c168ec75eb3",
+        "type": "github"
+      },
+      "original": {
+        "owner": "davidlee",
+        "ref": "v0.6.1",
+        "repo": "quotient",
+        "type": "github"
+      }
+    },
     "root": {
       "inputs": {
         "agents": "agents",
         "devshell": "devshell",
         "doctrine": "doctrine",
         "flake-utils": "flake-utils_3",
-        "nixpkgs": "nixpkgs_8"
+        "nixpkgs": "nixpkgs_8",
+        "quotient": "quotient"
       }
     },
     "rust-overlay": {

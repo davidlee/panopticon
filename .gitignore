@@ -124,3 +124,4 @@ web-ext-artifacts/
 /.claude/agents/dispatch-worker.md
 /.pi/agents/dispatch-worker.md
 # <<< doctrine managed
+.quotient/

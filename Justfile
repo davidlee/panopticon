@@ -38,3 +38,8 @@ content-path url="":
 
 alias sign := sign-extension
 alias fetch := fetch-extension
+
+# Build this root's quotient forms and link .quotient/forms/{read,write}; then `quotient allow`.
+quotient-forms:
+    mkdir -p .quotient/forms
+    for c in read write; do nix build -o ".quotient/result-$c" ".#quotient-$c" && ln -sfn "$(readlink -f ".quotient/result-$c")/bin/quotient-$c" ".quotient/forms/$c"; done

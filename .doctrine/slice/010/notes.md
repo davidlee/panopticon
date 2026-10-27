@@ -31,10 +31,20 @@ What pi got wrong / gaps:
 
 PHASE-03 docs written by the orchestrator (cheaper than a brief).
 
+## VH-1 (user, 2026-10-27)
+
+- Manual extract → path on the clipboard
+  (`content/77/77ff9fb2….md`, exists). Pass.
+- "No reply" observed first, against a stale 0.2.1 host process Firefox had
+  kept alive across the profile upgrade — the timeout notification works.
+- Not reported: same-page repeat → same path; dwell silent.
+
 ## Durable
 
 - Duplicate-page replies depend on `ContentStore.store()` writing files
   before its dedup check (commented at the call site). Reordering `store()`
   breaks the duplicate reply silently.
+- Firefox keeps the native host alive across a binary upgrade; a new host
+  takes effect only after the old process exits (README § Notes).
 - `doctrine slice phases` (0.47.0) skipped PHASE-01 while reporting "up to
   date"; its tracking sheet was hand-made.

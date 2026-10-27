@@ -161,5 +161,9 @@ notification; stop the host and extract → "No reply" notification.
   Firefox's native-messaging naming rules).
 - The extension reconnects to the host on disconnect with exponential
   backoff (1 s → 30 s).
+- Firefox keeps the host process alive while the port is open, so
+  upgrading the host binary does nothing until that process exits: kill
+  it (the extension respawns it) or reload the extension. A stale host
+  from before 0.3.0 never replies, so manual sends end in "No reply".
 - Active-tab state is mirrored to `browser.storage.session` so suspend
   cycles don't drop the active tab.

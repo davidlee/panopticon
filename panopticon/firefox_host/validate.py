@@ -8,6 +8,7 @@ filter. All functions are pure.
 
 from __future__ import annotations
 
+import re
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
@@ -34,6 +35,13 @@ IDENTITY_PARAMS: dict[str, tuple[str, ...]] = {
     "youtube.com": ("v",),
     "m.youtube.com": ("v",),
 }
+
+# Source triggers for a content extraction; any other value is a dwell request.
+# Mirrored in firefox-extension/background.js — parity is test-enforced (SL-010).
+TRIGGERS = ("manual", "dwell")
+
+# A manual request's correlation id. Anything else loses the reply, not the article.
+CONTENT_ID_PATTERN = re.compile(r"[A-Za-z0-9-]{1,64}")
 
 ALLOWED_EVENT_TYPES = frozenset(
     {
@@ -89,7 +97,28 @@ def validate_and_redact(
         if domain is not None:
             fields["domain"] = domain
 
+    if event == "browser_content_extracted":
+        _normalise_request(fields)
+
     return event, ts, fields
+
+
+def _normalise_request(fields: dict[str, Any]) -> None:
+    """Coerce ``trigger``/``id`` in place on a content event.
+
+    Only a manual request with a well-formed id keeps the manual trigger;
+    anything else becomes dwell with no id, so the article is stored either
+    way. Never raises (D6).
+    """
+    content_id = fields.pop("id", None)
+    manual = (
+        fields.get("trigger") == "manual"
+        and isinstance(content_id, str)
+        and CONTENT_ID_PATTERN.fullmatch(content_id) is not None
+    )
+    fields["trigger"] = "manual" if manual else "dwell"
+    if manual:
+        fields["id"] = content_id
 
 
 def redact_url(url: str, *, record_file_urls: bool) -> str | None:

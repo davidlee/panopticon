@@ -50,7 +50,7 @@ verification = [
   { id = "VT-2", expects = "Manual with `error` → reason extraction_error; empty text/HTML → empty_content; store() raising → store_failed and later events still processed.", test_file = "tests/test_firefox_host_main.py", keywords = ["extraction_error", "empty_content", "store_failed"], patterns = ["def test_"], waived = false },
   { id = "VT-3", expects = "Dwell, absent, null and unknown trigger, and manual with oversized or ill-formed id → article stored, zero bytes on the reply stream.", test_file = "tests/test_firefox_host_main.py", keywords = ["dwell", "trigger"], patterns = ["def test_"], waived = false },
   { id = "VT-4", expects = "Reply stream raising BrokenPipeError → loop continues; a following event is still stored.", test_file = "tests/test_firefox_host_main.py", keywords = ["BrokenPipeError"], patterns = ["def test_"], waived = false },
-  { id = "VT-5", expects = "Validator: trigger/id normalisation table (absent, null, unknown, manual+valid id, manual+bad id); neither field survives into the returned fields.", test_file = "tests/test_firefox_validate.py", keywords = ["trigger", "id"], patterns = ["def test_"], waived = false },
+  { id = "VT-5", expects = "Validator: trigger/id normalisation table (absent, null, unknown, manual+valid id, manual+bad id); both exposed normalised on the returned fields of content events only (`id` only when manual); run_loop pops them before ContentStore.", test_file = "tests/test_firefox_validate.py", keywords = ["trigger", "id"], patterns = ["def test_"], waived = false },
 ]
 specs        = []
 requirements = []

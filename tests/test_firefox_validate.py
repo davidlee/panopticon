@@ -251,3 +251,90 @@ def test_extension_identity_params_match_host() -> None:
     assert m, "IDENTITY_PARAMS not found in background.js"
     ext = {host: tuple(names) for host, names in json.loads(m.group(1)).items()}
     assert ext == dict(validate.IDENTITY_PARAMS)
+
+
+# ── trigger / id normalisation (SL-010 PHASE-01, VT-5) ───────────────
+
+
+# Well past ContentStore's 500-char quality floor.
+_ARTICLE = "A valid article body sentence. " * 30
+
+
+def _content_message(**overrides: object) -> dict[str, object]:
+    """A valid browser_content_extracted message; override any field."""
+    msg: dict[str, object] = {
+        "event": "browser_content_extracted",
+        "ts": "2026-05-19T10:00:00.000+10:00",
+        "url": "https://example.com/post",
+        "domain": "example.com",
+        "title": "A Post",
+        "textContent": _ARTICLE,
+        "contentHtml": "<p>" + _ARTICLE + "</p>",
+        "length": len(_ARTICLE),
+    }
+    msg.update(overrides)
+    return msg
+
+
+_VALID_ID = "123e4567-e89b-42d3-a456-426614174000"
+
+
+@pytest.mark.parametrize(
+    ("overrides", "trigger", "id_value"),
+    [
+        ({}, "dwell", None),
+        ({"trigger": None}, "dwell", None),
+        ({"trigger": "dwell"}, "dwell", None),
+        ({"trigger": "bogus"}, "dwell", None),
+        ({"trigger": "manual", "id": _VALID_ID}, "manual", _VALID_ID),
+        ({"trigger": "manual"}, "dwell", None),
+        ({"trigger": "manual", "id": None}, "dwell", None),
+        ({"trigger": "manual", "id": ""}, "dwell", None),
+        ({"trigger": "manual", "id": "a" * 65}, "dwell", None),
+        ({"trigger": "manual", "id": "a b"}, "dwell", None),
+        ({"trigger": "manual", "id": 42}, "dwell", None),
+        ({"trigger": "manual", "id": ["a"]}, "dwell", None),
+    ],
+    ids=[
+        "absent",
+        "null",
+        "dwell",
+        "unknown",
+        "manual-valid-uuid",
+        "manual-without-id",
+        "manual-null-id",
+        "manual-empty-id",
+        "manual-oversized-id",
+        "manual-space-id",
+        "manual-non-string-id",
+        "manual-list-id",
+    ],
+)
+def test_trigger_id_normalisation(
+    overrides: dict[str, object], trigger: str, id_value: str | None
+) -> None:
+    """Normalisation never raises; malformed manual requests fall back to dwell.
+
+    ``trigger`` and ``id`` are exposed on ``fields`` for the host's reply
+    path; ``run_loop`` pops both before ``fields`` reach ``ContentStore``.
+    """
+    event, _, fields = validate.validate_and_redact(_content_message(**overrides))
+    assert event == "browser_content_extracted"
+    assert fields["trigger"] == trigger
+    if id_value is None:
+        assert "id" not in fields
+    else:
+        assert fields["id"] == id_value
+
+
+def test_trigger_and_id_only_on_content_events() -> None:
+    """Other events stay as sent: no trigger/id injected into the raw tier."""
+    _, _, fields = validate.validate_and_redact(
+        {
+            "event": "browser_tab_active",
+            "ts": "2026-05-19T10:00:00.000+10:00",
+            "url": "https://example.com/tab",
+        }
+    )
+    assert "trigger" not in fields
+    assert "id" not in fields

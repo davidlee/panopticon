@@ -9,8 +9,8 @@ Two modes:
 * ``install-manifest`` — render and write the per-user Firefox
   native-messaging manifest, then exit.
 
-Stdout is reserved for the wire protocol (we don't reply, but we must
-not pollute it); all logging goes to stderr.
+Stdout is the wire: the host replies with a content path on manual
+sends and writes nothing else. All logging goes to stderr.
 """
 
 from __future__ import annotations
@@ -18,13 +18,14 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, BinaryIO
 
 from panopticon.cli import configure_logging
 from panopticon.firefox_host import install as install_mod
 from panopticon.firefox_host import protocol, validate
-from panopticon.ingest.content import content_dir
+from panopticon.ingest.content import ContentStore, content_dir, content_hash, shard_path
 from panopticon.schema import make_event
 from panopticon.store import RawStore, state_dir
 
@@ -46,22 +47,45 @@ def _cmd_run(args: argparse.Namespace) -> int:
         run_loop(
             sys.stdin.buffer,
             store,
+            reply=sys.stdout.buffer,
             record_file_urls=args.record_file_urls,
         )
     return 0
+
+
+@dataclass(frozen=True)
+class Stored:
+    """The article is on disk at ``md_path`` (an absolute path)."""
+
+    hash: str
+    md_path: Path
+
+
+@dataclass(frozen=True)
+class Failed:
+    """The article was not stored; ``reason`` is a closed set (design §5.2)."""
+
+    reason: str
+
+
+Outcome = Stored | Failed
 
 
 def run_loop(
     stdin: BinaryIO,
     store: RawStore,
     *,
+    reply: BinaryIO | None = None,
     record_file_urls: bool = False,
 ) -> None:
     """Read framed messages from ``stdin`` until EOF and append to ``store``.
 
     ``browser_content_extracted`` events are routed to :class:`ContentStore`
     instead of the raw JSONL tier (their payloads are too large for the
-    per-day raw files and serve a different consumer).
+    per-day raw files and serve a different consumer). A manual request is
+    answered with exactly one :func:`content_path_reply` on ``reply``;
+    without a ``reply`` stream (dwell traffic, old call sites) nothing is
+    written.
     """
     ct_root = content_dir(root=store.root)
 
@@ -82,7 +106,11 @@ def run_loop(
             continue
 
         if event_name == "browser_content_extracted":
-            _handle_content_extracted(ct_root, ts, fields)
+            trigger = fields.pop("trigger", "dwell")
+            content_id = fields.pop("id", None)
+            outcome = _handle_content_extracted(ct_root, ts, fields)
+            if reply is not None and trigger == "manual" and content_id is not None:
+                _write_reply(reply, content_path_reply(content_id, outcome))
             continue
 
         store.write(make_event("firefox", event_name, ts=ts, **fields))
@@ -104,47 +132,77 @@ def _cmd_install_manifest(args: argparse.Namespace) -> int:
     return 0
 
 
+def _write_reply(reply: BinaryIO, payload: dict[str, Any]) -> None:
+    """Frame one reply; a closed port is logged, never fatal (R2)."""
+    try:
+        protocol.write_message(reply, payload)
+    except (OSError, protocol.ProtocolError) as exc:
+        log.warning("dropping reply: %s", exc)
+
+
+def content_path_reply(content_id: str, outcome: Outcome) -> dict[str, Any]:
+    """Build the host→extension reply for a manual request. Pure (D2)."""
+    if isinstance(outcome, Stored):
+        return {
+            "type": "content_path",
+            "id": content_id,
+            "ok": True,
+            "path": str(outcome.md_path),
+            "hash": outcome.hash,
+        }
+    return {"type": "content_path", "id": content_id, "ok": False, "reason": outcome.reason}
+
+
 def _handle_content_extracted(
     ct_root: Path,
     ts: str,
     fields: dict[str, Any],
-) -> None:
-    """Route a browser_content_extracted event to the ContentStore."""
-    from panopticon.ingest.content import ContentStore
+) -> Outcome:
+    """Route a browser_content_extracted event to the ContentStore.
 
+    Never raises: a store failure is logged and becomes ``Failed``, so one
+    bad page cannot end capture (D9).
+    """
     domain = fields.get("domain") or "unknown"
     url = fields.get("url", "")
     error = fields.get("error")
 
     if error:
         log.debug("content extraction failed for %s: %s", url, error)
-        return
+        return Failed("extraction_error")
 
     text_content = fields.get("textContent", "")
     content_html = fields.get("contentHtml", "")
 
     if not text_content or not content_html:
         log.debug("empty content for %s, skipping", url)
-        return
+        return Failed("empty_content")
 
-    store = ContentStore(root=ct_root, domain=domain)
-    entry = store.store(
-        url=url,
-        title=fields.get("title"),
-        text_content=text_content,
-        content_html=content_html,
-        byline=fields.get("byline"),
-        excerpt=fields.get("excerpt"),
-        site_name=fields.get("siteName"),
-        published_time=fields.get("publishedTime"),
-        captured_at=fields.get("capturedAt") or ts,
-        extractor="readability",
-    )
+    try:
+        entry = ContentStore(root=ct_root, domain=domain).store(
+            url=url,
+            title=fields.get("title"),
+            text_content=text_content,
+            content_html=content_html,
+            byline=fields.get("byline"),
+            excerpt=fields.get("excerpt"),
+            site_name=fields.get("siteName"),
+            published_time=fields.get("publishedTime"),
+            captured_at=fields.get("capturedAt") or ts,
+            extractor="readability",
+        )
+    except Exception as exc:  # noqa: BLE001 - the host must outlive a bad page
+        log.warning("content store failed for %s: %s", url, exc)
+        return Failed("store_failed")
+
+    # store() writes the files before its duplicate check, so the .md exists
+    # even when ``entry`` is None (a duplicate); it is still a success (D4).
+    ch = content_hash(text_content)
     if entry:
-        log.info("content stored: hash=%s url=%s quality=%s",
-                 entry["content_hash"][:12], url, entry["quality_score"])
+        log.info("content stored: hash=%s url=%s quality=%s", ch[:12], url, entry["quality_score"])
     else:
         log.debug("content duplicate: %s", url)
+    return Stored(hash=ch, md_path=shard_path(ct_root, ch, ".md"))
 
 
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:

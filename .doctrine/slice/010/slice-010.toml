@@ -1,7 +1,7 @@
 id = 10
 slug = "content-path-reply"
 title = "content handoff: host replies with the captured page's path"
-status = "started"
+status = "audit"
 created = "2026-10-24"
 updated = "2026-10-27"
 tags = ["agents", "browser", "content"]
@@ -9,6 +9,51 @@ tags = ["agents", "browser", "content"]
 [relationships]
 needs = []                      # slice→work hard prerequisite
 after = []                      # slice→work soft sequence: { to, rank }
+
+[[selector]]
+selector = "panopticon/firefox_host/validate.py"
+intent = "design-target"
+note = "design §8"
+
+[[selector]]
+selector = "panopticon/firefox_host/__main__.py"
+intent = "design-target"
+note = "design §8"
+
+[[selector]]
+selector = "firefox-extension/content.js"
+intent = "design-target"
+note = "design §8"
+
+[[selector]]
+selector = "firefox-extension/background.js"
+intent = "design-target"
+note = "design §8"
+
+[[selector]]
+selector = "firefox-extension/manifest.json"
+intent = "design-target"
+note = "design §8"
+
+[[selector]]
+selector = "firefox-extension/README.md"
+intent = "design-target"
+note = "design §8"
+
+[[selector]]
+selector = "docs/privacy.md"
+intent = "design-target"
+note = "design §8"
+
+[[selector]]
+selector = "tests/test_firefox_host_main.py"
+intent = "design-target"
+note = "design §8"
+
+[[selector]]
+selector = "tests/test_firefox_validate.py"
+intent = "design-target"
+note = "design §8"
 
 [[relation]]
 label = "references"

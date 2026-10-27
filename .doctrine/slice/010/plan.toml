@@ -18,7 +18,8 @@ collaborators = []
 targets      = []
 dependencies = []
 
-# One [[phase]]
+# One [[phase]] per ordered phase. Ids are PHASE-NN, immutable; edits append.
+[[phase]]
 id        = "PHASE-01"
 name      = "Host reply on manual sends"
 objective = """

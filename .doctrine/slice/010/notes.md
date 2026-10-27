@@ -46,5 +46,6 @@ PHASE-03 docs written by the orchestrator (cheaper than a brief).
   breaks the duplicate reply silently.
 - Firefox keeps the native host alive across a binary upgrade; a new host
   takes effect only after the old process exits (README § Notes).
-- `doctrine slice phases` (0.47.0) skipped PHASE-01 while reporting "up to
-  date"; its tracking sheet was hand-made.
+- `doctrine slice phases` skipped PHASE-01 because `plan.toml` had lost its
+  `[[phase]]` header (a truncated comment line), not a doctrine bug. Fixed in
+  audit (F1). Doctrine accepts unknown top-level plan keys silently.

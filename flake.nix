@@ -35,7 +35,7 @@
 
       panopticon = pkgs.python3Packages.buildPythonApplication {
         pname = "panopticon";
-        version = "0.3.0";
+        inherit ((builtins.fromTOML (builtins.readFile ./pyproject.toml)).project) version;
         pyproject = true;
         src = ./.;
         build-system = with pkgs.python3Packages; [hatchling];

@@ -1,3 +1,6 @@
 """panopticon — local desktop-behaviour capture."""
 
-__version__ = "0.1.0"
+from importlib.metadata import version
+
+# pyproject.toml is the single source; flake.nix reads it too (CHR-003).
+__version__ = version("panopticon")

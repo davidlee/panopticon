@@ -165,8 +165,8 @@
         commands = pkgs.lib.optionals isLinux [
           {
             name = "jpi";
-            help = "op run -- jailed-pi $@";
-            command = "op run -- jailed-pi \"$@\"";
+            help = "jailed-pi $@";
+            command = "jailed-pi \"$@\"";
           }
           {
             name = "jcl";

@@ -5,7 +5,10 @@
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
     devshell.url = "github:numtide/devshell";
-    agents.url = "github:davidlee/nix-config?dir=flakes/agents";
+    agents = {
+      url = "github:davidlee/nix-config?dir=flakes/agents";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
     doctrine.url = "github:davidlee/doctrine";
   };
 

@@ -1,0 +1,114 @@
+# Implementation plan for SL-010 — the authored, durable phase plan.
+#
+# This is the single source of each phase's objective, criteria, verification,
+# and links. Runtime status lives separately under .doctrine/state/ (phase
+# tracking) — never record progress here. Hand-edit freely: the tool reads this
+# file but does not rewrite it.
+schema  = "doctrine.plan.overview"
+version = 1
+slice   = "SL-010"
+
+# Canonical spec/requirement links — cite ids, never restate what they say. The
+# plan reader does not model these yet, so nothing downstream consumes them.
+[specs]
+primary       = []
+collaborators = []
+
+[requirements]
+targets      = []
+dependencies = []
+
+# One [[phase]]
+id        = "PHASE-01"
+name      = "Host reply on manual sends"
+objective = """
+Design §5.2 Request + Host functions, D2, D4, D6, D7, D9:
+- `validate.py`: normalise `trigger` (absent/null/unknown → dwell) and `id`
+  (`^[A-Za-z0-9-]{1,64}$`, else the request is treated as dwell). Never
+  raises for these fields. Strip both from `fields`; expose the normalised
+  trigger and id to `run_loop`.
+- `__main__.py`: `Outcome` (`Stored(hash, md_path)` | `Failed(reason)`);
+  `_handle_content_extracted` returns it and never raises (store exception →
+  `store_failed`, logged to stderr); `md_path` is the absolute
+  `shard_path(ct_root, content_hash(text), ".md")`.
+- Pure `content_path_reply(id, outcome) -> dict`.
+- `run_loop(..., reply: BinaryIO | None = None)`: on a manual request,
+  `write_message(reply, …)`; OSError/ProtocolError on write → warning,
+  continue. `_cmd_run` passes `sys.stdout.buffer`. Docstrings ("we don't
+  reply") updated.
+"""
+entrance_criteria = [
+  { id = "EN-1", text = "Design SL-010 approved (user, 2026-10-27, incl. revised D6)." },
+]
+exit_criteria = [
+  { id = "EX-1", text = "Existing `run_loop(stdin, store)` tests green unchanged (behaviour-preservation gate)." },
+  { id = "EX-2", text = "`ContentStore.store()` unchanged." },
+  { id = "EX-3", text = "`just check` green." },
+]
+verification = [
+  { id = "VT-1", expects = "Manual success → exactly one framed reply on the reply stream; `path` absolute, under the run's content root, exists; `hash` matches. Same text sent twice → second reply ok with the same path.", test_file = "tests/test_firefox_host_main.py", keywords = ["reply=", "content_path", "manual"], patterns = ["def test_"], waived = false },
+  { id = "VT-2", expects = "Manual with `error` → reason extraction_error; empty text/HTML → empty_content; store() raising → store_failed and later events still processed.", test_file = "tests/test_firefox_host_main.py", keywords = ["extraction_error", "empty_content", "store_failed"], patterns = ["def test_"], waived = false },
+  { id = "VT-3", expects = "Dwell, absent, null and unknown trigger, and manual with oversized or ill-formed id → article stored, zero bytes on the reply stream.", test_file = "tests/test_firefox_host_main.py", keywords = ["dwell", "trigger"], patterns = ["def test_"], waived = false },
+  { id = "VT-4", expects = "Reply stream raising BrokenPipeError → loop continues; a following event is still stored.", test_file = "tests/test_firefox_host_main.py", keywords = ["BrokenPipeError"], patterns = ["def test_"], waived = false },
+  { id = "VT-5", expects = "Validator: trigger/id normalisation table (absent, null, unknown, manual+valid id, manual+bad id); neither field survives into the returned fields.", test_file = "tests/test_firefox_validate.py", keywords = ["trigger", "id"], patterns = ["def test_"], waived = false },
+]
+specs        = []
+requirements = []
+
+[[phase]]
+id        = "PHASE-02"
+name      = "Extension: call-site trigger, reply handling"
+objective = """
+Design §5.1, §5.2 Extension, D1, D3, D10:
+- `content.js`: define `panopticonExtract()` returning the article or
+  `{error}`; no runtime message.
+- `background.js`: `const TRIGGERS = ["manual", "dwell"];` (strict JSON);
+  `extract(tabId, trigger)` replaces `injectContentScript` — inject files,
+  then `{func}`, await the result, redact, build one payload with
+  `{trigger, id?}` spread in; remove the `content_extracted` onMessage
+  listener. Manual: `crypto.randomUUID()` id, `pending` map with 10 s
+  timeout; `port.onMessage` dispatch on `type`; `content_path` → awaited
+  clipboard write + fixed-text notification (copied / copy failed / reason);
+  timeout or disconnect with pending ids → "no reply" notification; manual
+  failure before send → notification, nothing sent. Unknown `type` ignored.
+- `manifest.json`: `clipboardWrite`, `notifications`; version 0.3.0.
+"""
+entrance_criteria = [
+  { id = "EN-1", text = "PHASE-01 completed." },
+]
+exit_criteria = [
+  { id = "EX-1", text = "Dwell extraction still stores pages and records the URL in `extractedUrls`." },
+  { id = "EX-2", text = "Notifications carry no path or page title." },
+  { id = "EX-3", text = "`just check` green." },
+]
+verification = [
+  { id = "VT-1", expects = "Static: `TRIGGERS` parsed from background.js equals the validator's trigger set; background.js registers `port.onMessage`; manifest has clipboardWrite and notifications and a version above 0.2.3.", test_file = "tests/test_firefox_validate.py", keywords = ["TRIGGERS", "clipboardWrite", "notifications"], patterns = ["def test_"], waived = false },
+  { id = "VA-1", expects = "Review of background.js/content.js against design §5.1-5.2: one send site, every manual path ends in exactly one notification, pending entries always cleared." },
+]
+specs        = []
+requirements = []
+
+[[phase]]
+id        = "PHASE-03"
+name      = "Docs, sign, manual check"
+objective = """
+Design §8, §9 VH:
+- `firefox-extension/README.md`: the port is two-way; reply contract;
+  permissions and why.
+- `docs/privacy.md`: the extension writes (never reads) the clipboard on a
+  manual send; notifications carry no page data.
+- `just sign` 0.3.0 (user), install, run the VH checks.
+"""
+entrance_criteria = [
+  { id = "EN-1", text = "PHASE-02 completed." },
+]
+exit_criteria = [
+  { id = "EX-1", text = "Docs agree with design D1, D6, D7 and the code." },
+  { id = "EX-2", text = "`just check` green." },
+]
+verification = [
+  { id = "VA-1", expects = "README and privacy.md match the shipped contract and permissions." },
+  { id = "VH-1", expects = "Signed 0.3.0 installed: manual extract → notification and a pasteable path that exists; same page again → same path; dwell → no notification; host stopped → 'no reply' notification." },
+]
+specs        = []
+requirements = []

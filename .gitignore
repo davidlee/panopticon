@@ -9,6 +9,7 @@ build/
 .ruff_cache/
 
 *.local.*
+panopticon.png
 
 panopticon.zip
 .claude/settings.local.ljson

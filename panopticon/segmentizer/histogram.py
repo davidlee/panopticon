@@ -9,6 +9,9 @@ Two segment streams are supported:
 * ``browser_tab_segment`` (from firefox) — contributes
   ``per_domain_seconds`` and ``per_browser_hour_seconds``.
 
+Keyrate's ``keyrate_window`` raw rows (already per minute, so no segment tier)
+contribute ``typing_per_app``.
+
 Both aggregators clip each segment to the requested local day boundary
 (derived from the segment's own offset) so a segment that crosses
 midnight contributes to both days correctly. Output shape after the
@@ -22,6 +25,8 @@ segmentizer merges both passes:
   "per_hour_seconds":         [s_0, ..., s_23],
   "per_domain_seconds":       {domain: seconds, ...},
   "per_browser_hour_seconds": [s_0, ..., s_23],
+  "typing_per_app": {app_id: {keys, key_seconds, wpm,
+                              titles: {title: {keys, key_seconds, wpm}}}},
 }
 ```
 
@@ -35,7 +40,10 @@ from collections.abc import Iterable
 from datetime import datetime, timedelta
 from typing import Any
 
+from panopticon.keyrate.render import CHARS_PER_WORD
 from panopticon.schema import Event
+
+UNTITLED = "(untitled)"
 
 
 def aggregate(segments: Iterable[Event], *, day: str) -> dict[str, Any]:
@@ -92,6 +100,32 @@ def aggregate_browser(segments: Iterable[Event], *, day: str) -> dict[str, Any]:
         "per_domain_seconds": per_domain,
         "per_browser_hour_seconds": per_hour,
     }
+
+
+def aggregate_typing(rows: Iterable[Event]) -> dict[str, Any]:
+    """Keys per app and window title from one day's ``keyrate_window`` rows.
+
+    ``wpm`` is the rate while typing: words of :data:`CHARS_PER_WORD` keys per
+    minute of ``key_seconds``. An app's ``key_seconds`` sum its titles'.
+    """
+    per_app: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        if row.event != "keyrate_window":
+            continue
+        f = row.fields
+        app = per_app.setdefault(f["app_id"], {"keys": 0, "key_seconds": 0, "titles": {}})
+        title = app["titles"].setdefault(f["title"] or UNTITLED, {"keys": 0, "key_seconds": 0})
+        for counts in (app, title):
+            counts["keys"] += f["keys"]
+            counts["key_seconds"] += f["key_seconds"]
+    for app in per_app.values():
+        for counts in (app, *app["titles"].values()):
+            counts["wpm"] = _wpm(counts["keys"], counts["key_seconds"])
+    return {"typing_per_app": per_app}
+
+
+def _wpm(keys: int, key_seconds: int) -> float:
+    return round(keys / CHARS_PER_WORD * 60 / key_seconds, 1) if key_seconds else 0.0
 
 
 def _clip(fields: dict[str, Any], day: str) -> tuple[datetime, datetime]:

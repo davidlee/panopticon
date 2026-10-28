@@ -9,6 +9,7 @@ from panopticon.keyrate.count import (
     Counter,
     MinuteRow,
     Snapshot,
+    WindowRow,
     classify,
     is_watched,
 )
@@ -140,3 +141,33 @@ def test_memory_is_bounded():
         counter.close_minutes(t)
         counter.snapshot(t)
     assert counter.retained_seconds() <= 61
+
+
+EMACS = ("emacs", "notes.org")
+TERM = ("com.mitchellh.ghostty", "~/dev")
+
+
+def test_keys_are_split_by_the_window_they_landed_in():
+    counter = Counter(T0)
+    counter.record(Activity.KEY, T0 + 1.1, EMACS)
+    counter.record(Activity.KEY, T0 + 1.5, TERM)
+    counter.record(Activity.KEY, T0 + 1.7, EMACS)
+    counter.record(Activity.KEY, T0 + 9.0, EMACS)
+    counter.record(Activity.POINTER, T0 + 9.5, TERM)
+
+    [row] = counter.close_minutes(T0 + 60)
+
+    assert (row.keys, row.key_seconds) == (4, 2)
+    assert row.windows == (
+        WindowRow(app_id="emacs", title="notes.org", keys=3, key_seconds=2),
+        WindowRow(app_id="com.mitchellh.ghostty", title="~/dev", keys=1, key_seconds=1),
+    )
+
+
+def test_keys_without_a_window_count_only_toward_the_minute():
+    counter = Counter(T0)
+    counter.record(Activity.KEY, T0 + 1, EMACS)
+    counter.record(Activity.KEY, T0 + 2)
+    [row] = counter.close_minutes(T0 + 60)
+    assert row.keys == 2
+    assert row.windows == (WindowRow(app_id="emacs", title="notes.org", keys=1, key_seconds=1),)

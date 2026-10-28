@@ -120,6 +120,16 @@ any activity; quiet minutes are not written. `ts` is the minute's start.
     button press;
   - `peak_5s_cpm` — the busiest five seconds within the minute, as keys per
     minute.
+- `keyrate_window` — the minute's keys that landed in one focused window, one
+  event per window, written after the minute's `keyrate_minute` with the same
+  `ts`. The window is the desktop watcher's `current/desktop.json` at each key
+  press; keys with no focused window appear only in `keyrate_minute`. Fields:
+  - `app_id`;
+  - `title` — the window title without leading symbols and whitespace
+    (terminal spinners such as `⠋` or `◐`), or `null`;
+  - `keys` — as `keyrate_minute`;
+  - `key_seconds` — seconds of the minute with a key press in this window. A
+    second can hold keys in two windows, so these do not sum to the minute's.
 
 The live socket (`$XDG_RUNTIME_DIR/panopticon/keyrate.sock`) is not a raw
 stream: one JSON object per line, once a second, with `cpm_5s`, `cpm_60s`,
@@ -156,9 +166,18 @@ Derived by `panopticon-segmentize` and written to
   "per_workspace_seconds":    {workspace: seconds, ...},
   "per_hour_seconds":         [s_0, ..., s_23],
   "per_domain_seconds":       {domain: seconds, ...},
-  "per_browser_hour_seconds": [s_0, ..., s_23]
+  "per_browser_hour_seconds": [s_0, ..., s_23],
+  "typing_per_app": {
+    app_id: {"keys": n, "key_seconds": n, "wpm": w,
+             "titles": {title: {"keys": n, "key_seconds": n, "wpm": w}, ...}},
+    ...
+  }
 }
 ```
+
+`typing_per_app` sums the day's `keyrate_window` rows. `wpm` is the rate while
+typing: `keys / 5` per minute of `key_seconds`, not per minute focused. A
+`null` title is keyed `"(untitled)"`. An app's `key_seconds` sum its titles'.
 
 The `per_workspace_seconds` key is `"output/workspace"` when the segment
 carries an `output` (niri — e.g. `"DP-1/3"`), disambiguating same-named

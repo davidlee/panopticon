@@ -3,8 +3,10 @@
 Counts key presses and pointer activity from every keyboard and pointer
 (:mod:`~panopticon.keyrate.devices`), and once a second:
 
-* writes each closed minute to ``raw/keyrate-*.jsonl`` and, until SATAN reads
-  the raw stream, to the retired wpm-daemon's TSV (IMP-005 step 3 removes it);
+* writes each closed minute to ``raw/keyrate-*.jsonl``, with its keys split by
+  the window they landed in (the desktop watcher's ``current/desktop.json``),
+  and, until SATAN reads the raw stream, to the retired wpm-daemon's TSV
+  (IMP-005 step 3 removes it);
 * sends the live rate to every client of the keyrate socket.
 
 Never records which key, nor when any single event happened.
@@ -15,6 +17,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import contextlib
+import json
 import logging
 import os
 import signal
@@ -25,9 +28,16 @@ from pathlib import Path
 from typing import Protocol
 
 from panopticon.cli import configure_logging
-from panopticon.keyrate.count import Counter, classify
+from panopticon.keyrate.count import Activity, Counter, Window, classify
+from panopticon.keyrate.focus import window_of
 from panopticon.keyrate.live import Hub, default_socket_path, serve_live
-from panopticon.keyrate.render import SOURCE, legacy_tsv, minute_event, snapshot_line
+from panopticon.keyrate.render import (
+    SOURCE,
+    legacy_tsv,
+    minute_event,
+    snapshot_line,
+    window_events,
+)
 from panopticon.store import RawStore
 
 log = logging.getLogger(__name__)
@@ -49,12 +59,41 @@ def tick(counter: Counter, now: float, out: Outputs, devices: int) -> None:
     for row in counter.close_minutes(now):
         start = datetime.fromtimestamp(row.start, UTC).astimezone()
         out.store.write(minute_event(row, start))
+        for event in window_events(row, start):
+            out.store.write(event)
         if out.legacy_dir is not None and (tsv := legacy_tsv(row, start)):
             day, line = tsv
             out.legacy_dir.mkdir(parents=True, exist_ok=True)
             with open(out.legacy_dir / f"{day}.tsv", "a", encoding="utf-8") as fh:
                 fh.write(line)
     out.hub.broadcast(snapshot_line(counter.snapshot(now), devices))
+
+
+class CurrentWindow:
+    """The focused window, from the desktop watcher's current-state file.
+
+    Re-read only when the file is replaced (it is written by atomic rename), so
+    a key press costs one ``stat``. Missing or unreadable means no window.
+    """
+
+    def __init__(self, path: Path) -> None:
+        self._path = path
+        self._seen: tuple[int, int] | None = None
+        self._window: Window | None = None
+
+    def __call__(self) -> Window | None:
+        try:
+            st = self._path.stat()
+        except OSError:
+            self._seen, self._window = None, None
+            return None
+        if (st.st_ino, st.st_mtime_ns) != self._seen:
+            self._seen = (st.st_ino, st.st_mtime_ns)
+            try:
+                self._window = window_of(json.loads(self._path.read_text(encoding="utf-8")))
+            except (OSError, ValueError):
+                self._window = None
+        return self._window
 
 
 def _default_legacy_dir() -> Path:
@@ -120,10 +159,12 @@ async def _serve(args: argparse.Namespace, store: RawStore) -> None:
         loop.add_signal_handler(sig, stop.set)
 
     counter = Counter(time.time())
+    current = CurrentWindow(RawStore("desktop", store.root).current_path)
 
     def on_event(ev_type: int, code: int, value: int) -> None:
         if activity := classify(ev_type, code, value):
-            counter.record(activity, time.time())
+            window = current() if activity is Activity.KEY else None
+            counter.record(activity, time.time(), window)
 
     hub = Hub()
     out = Outputs(store=store, legacy_dir=args.legacy_dir, hub=hub)

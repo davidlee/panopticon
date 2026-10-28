@@ -1,4 +1,4 @@
-"""Pure keyrate wire formats: the raw minute event, the legacy SATAN TSV, the live line.
+"""Pure keyrate wire formats: the raw minute and window events, the legacy SATAN TSV, the live line.
 
 ``start`` is the row's minute start as an aware local datetime; the shell
 converts the epoch so this module needs no clock or timezone database.
@@ -27,6 +27,22 @@ def minute_event(row: MinuteRow, start: datetime) -> Event:
         pointer_seconds=row.pointer_seconds,
         peak_5s_cpm=row.peak_5s_cpm,
     )
+
+
+def window_events(row: MinuteRow, start: datetime) -> list[Event]:
+    """One ``keyrate_window`` event per window the minute's keys landed in."""
+    return [
+        make_event(
+            SOURCE,
+            "keyrate_window",
+            ts=utc_now_iso(start),
+            app_id=w.app_id,
+            title=w.title,
+            keys=w.keys,
+            key_seconds=w.key_seconds,
+        )
+        for w in row.windows
+    ]
 
 
 def legacy_tsv(row: MinuteRow, start: datetime) -> tuple[str, str] | None:

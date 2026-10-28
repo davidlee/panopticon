@@ -9,7 +9,7 @@ import pytest
 from tests.ast_imports import impurities
 
 KEYRATE = Path(__file__).resolve().parent.parent / "panopticon" / "keyrate"
-PURE_MODULES = ("count.py", "render.py")
+PURE_MODULES = ("count.py", "focus.py", "render.py")
 
 
 @pytest.mark.parametrize("name", PURE_MODULES)

@@ -11,7 +11,7 @@ increment of a per-second bucket and the code is dropped on the spot.
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 
 EV_KEY, EV_REL, EV_ABS = 0x01, 0x02, 0x03
@@ -74,15 +74,34 @@ def is_watched(capabilities: Mapping[int, Iterable[int]], bustype: int) -> bool:
     return is_keyboard or is_mouse or is_touch_or_pen
 
 
+# The focused window a key landed in: (app_id, title).
+Window = tuple[str, str | None]
+
+
+@dataclass(frozen=True, slots=True)
+class WindowRow:
+    """A minute's keys that landed in one window. ``key_seconds`` overlap across windows."""
+
+    app_id: str
+    title: str | None
+    keys: int
+    key_seconds: int
+
+
 @dataclass(frozen=True, slots=True)
 class MinuteRow:
-    """One closed minute. ``start`` is its epoch second; counts cover ``[start, start+60)``."""
+    """One closed minute. ``start`` is its epoch second; counts cover ``[start, start+60)``.
+
+    ``windows`` attributes the keys to the focused window, in order of first key;
+    keys with no known window count only toward the minute.
+    """
 
     start: int
     keys: int
     key_seconds: int
     pointer_seconds: int
     peak_5s_cpm: int
+    windows: tuple[WindowRow, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -98,6 +117,7 @@ class Snapshot:
 class _Second:
     keys: int = 0
     pointer: bool = False
+    window_keys: dict[Window, int] = field(default_factory=dict)
 
 
 class Counter:
@@ -110,13 +130,15 @@ class Counter:
         self._open_minute = _minute_of(int(now))
         self._seconds: dict[int, _Second] = {}
 
-    def record(self, activity: Activity, t: float) -> None:
+    def record(self, activity: Activity, t: float, window: Window | None = None) -> None:
         second = int(t)
         if second < self._open_minute:
             return
         bucket = self._seconds.setdefault(second, _Second())
         if activity is Activity.KEY:
             bucket.keys += 1
+            if window is not None:
+                bucket.window_keys[window] = bucket.window_keys.get(window, 0) + 1
         else:
             bucket.pointer = True
 
@@ -156,6 +178,7 @@ class Counter:
             key_seconds=len(keyed),
             pointer_seconds=sum(b.pointer for b in seconds.values()),
             peak_5s_cpm=peak * MINUTE // PEAK_WINDOW,
+            windows=_window_rows(seconds.values()),
         )
 
     def _keys_since(self, after: int) -> int:
@@ -165,6 +188,18 @@ class Counter:
         keep_from = min(self._open_minute, second - LIVE_WINDOW)
         for s in [s for s in self._seconds if s < keep_from]:
             del self._seconds[s]
+
+
+def _window_rows(seconds: Iterable[_Second]) -> tuple[WindowRow, ...]:
+    keys: dict[Window, int] = {}
+    key_seconds: dict[Window, int] = {}
+    for bucket in seconds:
+        for window, n in bucket.window_keys.items():
+            keys[window] = keys.get(window, 0) + n
+            key_seconds[window] = key_seconds.get(window, 0) + 1
+    return tuple(
+        WindowRow(app, title, keys[(app, title)], key_seconds[(app, title)]) for app, title in keys
+    )
 
 
 def _minute_of(second: int) -> int:

@@ -194,3 +194,23 @@ def test_run_derives_browser_segments_and_merges_histogram(root: Path):
     assert "per_app_seconds" in h
     assert "per_domain_seconds" in h
     assert h["per_domain_seconds"]["example.com"] > 0
+
+
+def test_run_merges_typing_per_window_from_keyrate(root: Path):
+    day = "2026-05-18"
+    write_raw(root, day, [
+        make_event("desktop", "snapshot", ts=f"{day}T10:00:00.000+10:00",
+                   app_id="emacs", workspace="1"),
+    ])  # fmt: skip
+    (root / "raw" / f"keyrate-{day}.jsonl").write_text(
+        make_event(
+            "keyrate", "keyrate_window", ts=f"{day}T10:00:00.000+10:00",
+            app_id="emacs", title="notes.org", keys=50, key_seconds=25,
+        ).to_json_line() + "\n"
+    )  # fmt: skip
+
+    run(root, today=date(2026, 5, 19))
+
+    h = json.loads((root / "histograms" / f"daily-{day}.json").read_text())
+    assert h["typing_per_app"]["emacs"]["titles"]["notes.org"]["keys"] == 50
+    assert (root / "raw" / f"keyrate-{day}.jsonl").exists()  # not a segment source

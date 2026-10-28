@@ -24,7 +24,7 @@ default and has its own local gate, configuration and timer.
 | Desktop: Sway, Niri or Umbriel | Window focus, application, title, workspace and output, through compositor IPC | Current focus and time spent in applications |
 | Firefox attention | Active tabs, redacted URLs, titles, navigation, browser focus and idle signals | Recent browser attention and time by domain |
 | Firefox page content | Mozilla Readability extraction after 30 seconds of dwell or an explicit right-click action | Searchable text of pages I visited |
-| Keyboard and pointer activity | Per minute: key presses (not modifiers or autorepeat), seconds with typing, seconds with pointer activity. Read from evdev, so any compositor. A live rate on a local socket | Typing versus reading versus idle; a rate for a status bar |
+| Keyboard and pointer activity | Per minute: key presses (not modifiers or autorepeat), seconds with typing, seconds with pointer activity; keys per focused window (app and title). Read from evdev, so any compositor. A live rate on a local socket | Typing versus reading versus idle; typing rate per app and window; a rate for a status bar |
 | Local Git repositories | Commits across local branches under `~/dev/*`, polled from the host | Project activity, including commits made inside jails |
 | Optional page digest | Summary, claims, entities and an advisory privacy classification | A compact account of captured reading |
 

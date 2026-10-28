@@ -5,8 +5,8 @@ from __future__ import annotations
 import json
 from datetime import datetime, timedelta, timezone
 
-from panopticon.keyrate.count import MinuteRow, Snapshot
-from panopticon.keyrate.render import legacy_tsv, minute_event, snapshot_line
+from panopticon.keyrate.count import MinuteRow, Snapshot, WindowRow
+from panopticon.keyrate.render import legacy_tsv, minute_event, snapshot_line, window_events
 from panopticon.schema import Event
 
 T0 = 1_800_000_000
@@ -47,3 +47,32 @@ def test_snapshot_line_is_one_json_object_per_line():
         "pointer_seconds_60s": 7,
         "devices": 3,
     }
+
+
+def test_each_window_of_a_minute_is_its_own_event():
+    row = MinuteRow(
+        start=T0, keys=9, key_seconds=5, pointer_seconds=0, peak_5s_cpm=60,
+        windows=(WindowRow("emacs", "notes.org", 7, 4), WindowRow("firefox", None, 2, 1)),
+    )  # fmt: skip
+    assert [e.to_dict() for e in window_events(row, START)] == [
+        {
+            "v": 1,
+            "ts": "2027-01-15T18:00:00.000+11:00",
+            "source": "keyrate",
+            "event": "keyrate_window",
+            "app_id": "emacs",
+            "title": "notes.org",
+            "keys": 7,
+            "key_seconds": 4,
+        },
+        {
+            "v": 1,
+            "ts": "2027-01-15T18:00:00.000+11:00",
+            "source": "keyrate",
+            "event": "keyrate_window",
+            "app_id": "firefox",
+            "title": None,
+            "keys": 2,
+            "key_seconds": 1,
+        },
+    ]

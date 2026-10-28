@@ -7,7 +7,8 @@ Single-shot batch job (intended for a daily systemd timer):
    ``segments/focus-YYYY-MM-DD.jsonl``. Past days are closed at the next
    day's local midnight (offset taken from the day's last event); the
    in-progress day is closed at its last observed event.
-2. For every segment file, build the per-day histogram and write
+2. For every segment file, build the per-day histogram, with typing per
+   window from ``raw/keyrate-YYYY-MM-DD.jsonl``, and write
    ``histograms/daily-YYYY-MM-DD.json`` atomically.
 3. Enforce retention.
 """
@@ -26,7 +27,7 @@ from panopticon.fsutil import atomic_write_text
 from panopticon.schema import Event, iter_jsonl
 from panopticon.segmentizer.browser import derive_browser_segments
 from panopticon.segmentizer.derive import derive_segments
-from panopticon.segmentizer.histogram import aggregate, aggregate_browser
+from panopticon.segmentizer.histogram import aggregate, aggregate_browser, aggregate_typing
 from panopticon.segmentizer.retention import enforce
 from panopticon.store import state_dir
 
@@ -88,6 +89,7 @@ def run(root: Path, *, today: date) -> None:
         browser_segs = _load_jsonl(root / "segments" / f"browser-{day_str}.jsonl")
         h = aggregate(focus_segs, day=day_str)
         h.update(aggregate_browser(browser_segs, day=day_str))
+        h.update(aggregate_typing(_load_jsonl(raw_dir / f"keyrate-{day_str}.jsonl")))
         hist_path = root / "histograms" / f"daily-{day_str}.json"
         atomic_write_text(
             hist_path, json.dumps(h, separators=(",", ":"), ensure_ascii=False)

@@ -42,6 +42,15 @@ Captures, per wall-clock minute:
 - how many keys were pressed (not modifiers, releases or autorepeat)
 - how many seconds had a key press, and how many had pointer activity
 - the busiest five seconds' key rate
+- per focused window (`app_id` and title, read from the desktop watcher's
+  `current/desktop.json`): how many keys landed in it and in how many seconds.
+  Leading symbols (terminal spinners) are stripped from the title.
+
+The per-window counts carry the window title, so they inherit its caveats. A
+shell that sets the title to each command it runs lets a minute's count for
+that title approximate the command's length; the title itself says more.
+Raw keyrate files are kept indefinitely, and the daily histogram, kept
+forever, sums keys per app and title (`typing_per_app`).
 
 Does **not** capture:
 

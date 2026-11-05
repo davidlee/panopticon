@@ -21,7 +21,15 @@ contains() { case "$1" in *"$2"*) ok "$3" ;; *) bad "$3 (no '$2' in output)" ;; 
 missing() { case "$1" in *"$2"*) bad "$3 (unexpected '$2')" ;; *) ok "$3" ;; esac }
 
 STREAM=$(mktemp)
-trap 'rm -f "$STREAM"' EXIT
+STUBS=()
+trap 'rm -f "$STREAM" "${STUBS[@]}"' EXIT
+
+reducer() { # reducer <body>: writes a stub reducer to REDUCER
+  REDUCER=$(mktemp)
+  STUBS+=("$REDUCER")
+  printf '#!/usr/bin/env bash\n%s\n' "$1" >"$REDUCER"
+  chmod +x "$REDUCER"
+}
 
 cat >"$STREAM" <<'JSONL'
 {"type":"session","version":3,"id":"s","cwd":"/repo"}
@@ -44,6 +52,31 @@ echo "2. degrades to the raw tail when the reducer is unavailable"
 out=$(PI_REDUCE=/nonexistent/pi-run-reduce pi_report "$STREAM" "[test]" 2>&1)
 contains "$out" "tail (no reducer" "says why it fell back"
 contains "$out" '{"type":"tool_execution_start"' "still shows the raw stream"
+
+echo "3. a reducer with no report degrades to the tail, whatever it exits"
+for body in 'exit 69' 'exit 0'; do
+  reducer "$body"
+  out=$(PI_REDUCE="$REDUCER" pi_report "$STREAM" "[test]" 2>&1)
+  status=$?
+  contains "$out" "tail (no reducer" "'$body': says why it fell back"
+  contains "$out" '{"type":"tool_execution_start"' "'$body': still shows the raw stream"
+  missing "$out" "[test] report" "'$body': no empty report header"
+  if [ "$status" -eq 0 ]; then ok "'$body': returns 0"; else bad "'$body': returned $status"; fi
+done
+
+echo "4. a failed run with a transcript is still a report: the verdict is the caller's"
+reducer 'echo "the transcript"; exit 1'
+out=$(PI_REDUCE="$REDUCER" pi_report "$STREAM" "[test]" 2>&1)
+contains "$out" "----- [test] report -----" "prints the report header"
+contains "$out" "the transcript" "prints the reducer's output"
+missing "$out" "tail (no reducer" "does not fall back"
+
+echo "5. a reducer that reads stdin cannot hang on the caller's"
+reducer 'cat >/dev/null; echo "stdin closed"'
+# shellcheck disable=SC2016 # expanded by the inner shell
+out=$(PI_REDUCE="$REDUCER" timeout 5 bash -c '. "$1"; pi_report "$2" "[test]"' _ \
+  "$SCRIPT_DIR/pi-report.sh" "$STREAM" < <(sleep 30) 2>&1)
+contains "$out" "stdin closed" "the reducer's stdin is closed"
 
 echo
 echo "pi-report: $PASS passed, $FAIL failed"

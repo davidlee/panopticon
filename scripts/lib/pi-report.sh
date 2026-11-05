@@ -17,8 +17,9 @@
 #   PI_REPORT_TAIL_LINES   fallback tail length (default 40)
 #
 # The reducer is TS run by node. Where either is unavailable (a jail without
-# node, a checkout without the agent tooling) this degrades to the old tail
-# rather than reporting nothing: a noisy report beats a silent one.
+# node, a checkout without the agent tooling), or it fails or prints nothing,
+# this degrades to the old tail rather than reporting nothing: a noisy report
+# beats a silent one.
 #
 # Only pi `--mode json` / `--mode rpc` streams reduce. The claude arm emits a
 # different event schema, so spawn-confined.sh calls this on the pi arm only.
@@ -27,19 +28,26 @@
 pi_report() {
   local stream=$1 tag=${2:-[spawn]}
   local reduce=${PI_REDUCE:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)/bin/pi-run-reduce}
+  local why="$reduce or node unavailable"
 
   if [ -x "$reduce" ] && command -v node >/dev/null 2>&1; then
     # Bash 3.2 (the macOS arm) errors on expanding an empty array under `set -u`,
     # hence the ${alerts[@]+...} form.
-    local alerts=() pattern
+    local alerts=() pattern report
     for pattern in ${PI_ALERTS:-}; do alerts+=(--alert "$pattern"); done
-    echo "----- $tag report -----"
     # The reducer exits non-zero on a failed or incomplete run; that verdict is
-    # the caller's to interpret, not a reason to abort the spawn script.
-    "$reduce" -v --out "$(mktemp -d)" ${alerts[@]+"${alerts[@]}"} "$stream" || true
-    return 0
+    # the caller's to interpret, not a reason to abort the spawn script. Empty
+    # stdout is what says it failed: it prints even for an empty stream. It is
+    # given a file, so stdin is closed: nothing it does can wait on the caller's.
+    report=$("$reduce" -v --out "$(mktemp -d)" ${alerts[@]+"${alerts[@]}"} "$stream" </dev/null) || true
+    if [ -n "$report" ]; then
+      echo "----- $tag report -----"
+      printf '%s\n' "$report"
+      return 0
+    fi
+    why="$reduce printed nothing"
   fi
 
-  echo "----- $tag tail (no reducer: $reduce or node unavailable) -----"
+  echo "----- $tag tail (no reducer: $why) -----"
   tail -"${PI_REPORT_TAIL_LINES:-40}" "$stream"
 }

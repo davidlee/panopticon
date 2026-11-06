@@ -161,6 +161,11 @@
             paths = projectPkgs ++ [doctrine-pkg];
             ignoreCollisions = true;
           };
+          capsule-tools = pkgs.buildEnv {
+            name = "panopticon-capsule-tools";
+            paths = projectPkgs ++ [doctrine-pkg];
+            ignoreCollisions = true;
+          };
         }
         // pkgs.lib.optionalAttrs isLinux jailPkgs
         // quotientForms;

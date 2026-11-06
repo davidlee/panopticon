@@ -153,14 +153,15 @@
           # is meaningless, so it takes the tool set and builds its own
           # confinement around it. One list, so the VM and this devshell cannot
           # drift. `jailPkgs` is deliberately not in here — those are the
-          # wrappers, not the tools. doctrine is the one addition: the
-          # devshell and jails use the host's cargo install (agents'
-          # hostDoctrine), which a VM does not have.
+          # wrappers, not the tools.
           dev-tools = pkgs.buildEnv {
             name = "panopticon-dev-tools";
-            paths = projectPkgs ++ [doctrine-pkg];
+            paths = projectPkgs;
             ignoreCollisions = true;
           };
+          # What the VM takes: `dev-tools` plus doctrine. The devshell and
+          # jails use the host's install (agents' hostDoctrine), which a VM
+          # does not have.
           capsule-tools = pkgs.buildEnv {
             name = "panopticon-capsule-tools";
             paths = projectPkgs ++ [doctrine-pkg];
